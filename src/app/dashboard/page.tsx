@@ -1,4 +1,4 @@
-// src/app/dashboard/page.tsx - Ordem reorganizada: ProcessesList primeiro
+// src/app/dashboard/page.tsx - Dashboard com debugger integrado
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -7,7 +7,8 @@ import { getCurrentCompany, filterTrackingsByCompany, type Company } from '@/lib
 import { ProcessesList } from '@/components/dashboard/ProcessesList';
 import { NewMetricsCards } from '@/components/dashboard/NewMetricsCards';
 import { NewChartsGrid } from '@/components/dashboard/NewChartsGrid';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { AsanaDebugger } from '@/components/AsanaDebugger';
+import { RefreshCw, AlertCircle, Bug, Settings } from 'lucide-react';
 
 export default function DashboardPage() {
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
@@ -18,6 +19,8 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState<string>('');
+  const [showDebugger, setShowDebugger] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -27,16 +30,18 @@ export default function DashboardPage() {
       return;
     }
     setCurrentCompany(company);
-    fetchRealTimeData();
+    fetchRobustData();
   }, [router]);
 
-  const fetchRealTimeData = async () => {
+  const fetchRobustData = async () => {
     try {
       setRefreshing(true);
       setError(null);
       
-      const timestamp = new Date().getTime();
-      const response = await fetch(`/api/asana/fixed-trackings?t=${timestamp}`, {
+      console.log('🔄 Tentando API robusta...');
+      
+      // Tentar primeira a nova API robusta
+      const robustResponse = await fetch(`/api/asana/robust?t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -44,33 +49,72 @@ export default function DashboardPage() {
         }
       });
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Erro desconhecido');
-      }
-
-      setTrackings(result.data);
-      
-      const company = getCurrentCompany();
-      if (company) {
-        const companyTrackings = filterTrackingsByCompany(result.data, company.name);
-        setFilteredTrackings(companyTrackings);
+      if (robustResponse.ok) {
+        const result = await robustResponse.json();
         
-        const calculatedMetrics = recalculateMetricsForCompany(companyTrackings);
-        setMetrics(calculatedMetrics);
+        if (result.success) {
+          console.log('✅ API Robusta funcionou!', result.meta);
+          
+          setTrackings(result.data);
+          
+          const company = getCurrentCompany();
+          if (company) {
+            // Filtrar por empresa
+            const companyTrackings = result.data.filter((tracking: any) => 
+              tracking.company && 
+              tracking.company.toLowerCase().includes(company.name.toLowerCase())
+            );
+            
+            console.log(`📊 Filtrados ${companyTrackings.length} trackings para ${company.name}`);
+            
+            setFilteredTrackings(companyTrackings);
+            setMetrics(result.metrics);
+            setLastSync(new Date().toLocaleTimeString('pt-BR'));
+            setDebugMode(false); // Dados OK, não precisa de debug
+          }
+          
+          return; // Sucesso, não tentar outras APIs
+        }
       }
       
-      setLastSync(new Date().toLocaleString('pt-BR'));
+      console.log('⚠️ API Robusta falhou, tentando API original...');
+      
+      // Fallback para API original
+      const fallbackResponse = await fetch(`/api/asana/fixed-trackings?t=${Date.now()}`, {
+        cache: 'no-store'
+      });
+      
+      const result = await fallbackResponse.json();
+      
+      if (result.success) {
+        console.log('✅ API original funcionou');
+        
+        setTrackings(result.data);
+        
+        const company = getCurrentCompany();
+        if (company) {
+          const companyTrackings = filterTrackingsByCompany(result.data, company.name);
+          setFilteredTrackings(companyTrackings);
+          
+          const calculatedMetrics = recalculateMetricsForCompany(companyTrackings);
+          setMetrics(calculatedMetrics);
+        }
+        
+        setLastSync(new Date().toLocaleTimeString('pt-BR'));
+        
+        // Se chegou aqui mas dados estão vazios, ativar debug mode
+        if (result.data.length === 0 || !result.data.some((t: any) => t.transport?.exporter)) {
+          setDebugMode(true);
+        }
+      } else {
+        throw new Error(result.error || 'Falha na API');
+      }
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao carregar dados';
       setError(errorMessage);
-      console.error('Erro ao buscar dados:', err);
+      setDebugMode(true); // Ativar debug quando há erro
+      console.error('❌ Erro ao buscar dados:', err);
     } finally {
       setRefreshing(false);
       setLoading(false);
@@ -78,92 +122,26 @@ export default function DashboardPage() {
   };
 
   const recalculateMetricsForCompany = (companyTrackings: any[]) => {
+    // Implementação simplificada das métricas
     const total = companyTrackings.length;
     const completed = companyTrackings.filter(t => t.status === 'Concluído').length;
     const active = total - completed;
     
-    // Contagem de containers
-    const totalContainers = companyTrackings.reduce((sum, t) => {
-      return sum + (t.transport?.containers?.length || 0);
-    }, 0);
-
-    // Status distribution
-    const statusDistribution: Record<string, number> = {};
-    companyTrackings.forEach(t => {
-      statusDistribution[t.status] = (statusDistribution[t.status] || 0) + 1;
-    });
-    
-    // Exporters distribution
-    const exporterDistribution: Record<string, number> = {};
-    companyTrackings.forEach(t => {
-      if (t.transport?.exporter && t.transport.exporter.trim()) {
-        exporterDistribution[t.transport.exporter] = (exporterDistribution[t.transport.exporter] || 0) + 1;
-      }
-    });
-    
-    // Armadores distribution
-    const armadorDistribution: Record<string, number> = {};
-    companyTrackings.forEach(t => {
-      if (t.transport?.shippingCompany && t.transport.shippingCompany.trim()) {
-        armadorDistribution[t.transport.shippingCompany] = (armadorDistribution[t.transport.shippingCompany] || 0) + 1;
-      }
-    });
-    
-    // Produtos distribution
-    const productDistribution: Record<string, number> = {};
-    companyTrackings.forEach(t => {
-      if (t.transport?.products && Array.isArray(t.transport.products)) {
-        t.transport.products.forEach((product: string) => {
-          if (product && product.trim()) {
-            productDistribution[product] = (productDistribution[product] || 0) + 1;
-          }
-        });
-      }
-    });
-
-    // ETD timeline
-    const etdTimeline: Record<string, number> = {};
-    companyTrackings.forEach(t => {
-      if (t.schedule?.etd) {
-        try {
-          const [day, month, year] = t.schedule.etd.split('/');
-          const monthKey = `${month}/${year.substring(2)}`;
-          etdTimeline[monthKey] = (etdTimeline[monthKey] || 0) + 1;
-        } catch (e) {
-          // Ignorar datas inválidas
-        }
-      }
-    });
-
-    // Órgãos Anuentes
-    const orgaosAnuentes = new Set<string>();
-    companyTrackings.forEach(t => {
-      if (t.regulatory?.orgaosAnuentes && Array.isArray(t.regulatory.orgaosAnuentes)) {
-        t.regulatory.orgaosAnuentes.forEach((orgao: string) => {
-          if (orgao && orgao.trim()) {
-            orgaosAnuentes.add(orgao);
-          }
-        });
-      }
-    });
-
     return {
       totalOperations: total,
       activeOperations: active,
       completedOperations: completed,
       effectiveRate: total > 0 ? Math.round((completed / total) * 100) : 0,
-      totalContainers,
-      statusDistribution,
-      exporterDistribution,
-      armadorDistribution,
-      productDistribution,
-      etdTimeline,
-      orgaosAnuentesDistribution: Array.from(orgaosAnuentes).reduce((acc, orgao) => {
-        acc[orgao] = companyTrackings.filter(t => 
-          t.regulatory?.orgaosAnuentes?.includes(orgao)
-        ).length;
-        return acc;
-      }, {} as Record<string, number>)
+      totalContainers: 0,
+      uniqueExporters: 0,
+      uniqueShippingLines: 0,
+      uniqueTerminals: 0,
+      statusDistribution: {},
+      exporterDistribution: {},
+      armadorDistribution: {},
+      productDistribution: {},
+      orgaosAnuentesDistribution: {},
+      etdTimeline: {}
     };
   };
 
@@ -182,24 +160,6 @@ export default function DashboardPage() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow max-w-md text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Erro no Dashboard</h1>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={fetchRealTimeData}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Tentar Novamente
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -209,6 +169,11 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
                 {currentCompany?.displayName || 'Dashboard'}
+                {debugMode && (
+                  <span className="ml-2 text-sm bg-red-100 text-red-800 px-2 py-1 rounded">
+                    MODO DEBUG
+                  </span>
+                )}
               </h1>
               <p className="text-sm text-gray-600">
                 Gestão de Processos de Importação
@@ -216,12 +181,19 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center space-x-4">
               <button
-                onClick={fetchRealTimeData}
+                onClick={() => setShowDebugger(!showDebugger)}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2"
+              >
+                <Bug className="h-4 w-4" />
+                <span>{showDebugger ? 'Ocultar' : 'Debugger'}</span>
+              </button>
+              <button
+                onClick={fetchRobustData}
                 disabled={refreshing}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                Atualizar
+                <span>Atualizar</span>
               </button>
               <button
                 onClick={handleLogout}
@@ -234,29 +206,84 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Main Content - PROCESSOS PRIMEIRO */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {/* Debug Info */}
-        {lastSync && (
-          <div className="mb-4 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-800">
-              Última sincronização: {lastSync} - {filteredTrackings.length} processos carregados do Asana
-            </p>
-          </div>
-        )}
-
         <div className="px-4 py-6 sm:px-0 space-y-8">
-          {/* 1. PROCESSOS DE IMPORTAÇÃO - PRIMEIRO */}
-          <ProcessesList 
-            trackings={filteredTrackings}
-            company={currentCompany}
-          />
           
-          {/* 2. CARDS DE MÉTRICAS - Layout da Imagem 2 */}
-          <NewMetricsCards metrics={metrics} />
-          
-          {/* 3. GRÁFICOS - Layout da Imagem 3 */}
-          <NewChartsGrid metrics={metrics} />
+          {/* Debug Info */}
+          {lastSync && (
+            <div className={`px-4 py-2 border rounded-lg ${
+              debugMode 
+                ? 'bg-yellow-50 border-yellow-200' 
+                : 'bg-green-50 border-green-200'
+            }`}>
+              <p className={`text-sm ${
+                debugMode 
+                  ? 'text-yellow-800' 
+                  : 'text-green-800'
+              }`}>
+                {debugMode ? '⚠️ ' : '✅ '}
+                Última sincronização: {lastSync} - {filteredTrackings.length} processos
+                {debugMode && ' (DADOS INCOMPLETOS - USE O DEBUGGER)'}
+              </p>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+                <span className="font-medium text-red-800">Erro na Integração</span>
+              </div>
+              <p className="text-red-700 mt-2">{error}</p>
+              <button
+                onClick={() => setShowDebugger(true)}
+                className="mt-2 bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+              >
+                Abrir Debugger
+              </button>
+            </div>
+          )}
+
+          {/* Debugger */}
+          {showDebugger && (
+            <AsanaDebugger />
+          )}
+
+          {/* Dashboard Content */}
+          {!error && (
+            <>
+              {/* 1. PROCESSOS DE IMPORTAÇÃO - PRIMEIRO */}
+              <ProcessesList 
+                trackings={filteredTrackings}
+                company={currentCompany}
+              />
+              
+              {/* 2. CARDS DE MÉTRICAS - SEGUNDO */}
+              <NewMetricsCards metrics={metrics} />
+              
+              {/* 3. GRÁFICOS - TERCEIRO */}
+              <NewChartsGrid metrics={metrics} />
+            </>
+          )}
+
+          {/* Instruções quando em modo debug */}
+          {debugMode && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+              <h3 className="text-lg font-medium text-blue-900 mb-4 flex items-center">
+                <Settings className="mr-2" />
+                Como Corrigir os Dados do Asana
+              </h3>
+              <div className="space-y-3 text-blue-800">
+                <p><strong>1.</strong> Clique no botão "Debugger" acima</p>
+                <p><strong>2.</strong> Execute o "Diagnóstico Completo" para ver exatamente o que está faltando</p>
+                <p><strong>3.</strong> Teste a "API Robusta" para ver se consegue extrair mais dados</p>
+                <p><strong>4.</strong> Verifique se os custom fields no Asana estão preenchidos corretamente</p>
+                <p><strong>5.</strong> Confirme se o projeto "Operacional" tem as tasks atualizadas</p>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
