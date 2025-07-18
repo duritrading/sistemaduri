@@ -20,9 +20,9 @@ export async function GET() {
     // 2. Find "Operacional" project (same logic as test-asana)
     const operationalProject = await asanaClient.findOperationalProject(workspace.gid);
 
-    // 3. Get tasks from Operacional project
-    const tasks = await asanaClient.getProjectTasks(operationalProject.gid);
-    console.log(`Found ${tasks.length} tasks in Operacional project`);
+  // 3. Get ALL tasks from Operacional project (not limited to 100)
+const tasks = await asanaClient.getAllProjectTasks(operationalProject.gid);
+console.log(`Found ${tasks.length} tasks in Operacional project`);
 
     // 4. Transform ALL tasks to tracking format (remove filters for now)
     const trackings = tasks

@@ -1,4 +1,4 @@
-// src/lib/auth.ts - Versão com debug e mais flexível
+// src/lib/auth.ts - Versão limpa sem debug
 'use client';
 
 export interface Company {
@@ -11,12 +11,7 @@ export interface Company {
 export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
   const companies = new Map<string, Company>();
   
-  console.log('=== DEBUG: Analisando trackings ===');
-  console.log('Total de trackings:', trackings.length);
-  
-  trackings.forEach((tracking, index) => {
-    console.log(`${index + 1}. "${tracking.title}"`);
-    
+  trackings.forEach(tracking => {
     // Primeiro tenta o padrão com parêntese: "número + nome + (observação)"
     let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
     
@@ -34,11 +29,8 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
       const companyName = companyMatch[1].trim();
       const companyId = companyName.toLowerCase().replace(/\s+/g, '');
       
-      console.log(`   ✅ Extraído: "${companyName}" (ID: ${companyId})`);
-      
       if (companies.has(companyId)) {
         companies.get(companyId)!.trackingCount++;
-        console.log(`   📈 Incrementado contador para "${companyName}"`);
       } else {
         companies.set(companyId, {
           id: companyId,
@@ -46,25 +38,15 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
           displayName: companyName,
           trackingCount: 1
         });
-        console.log(`   ✨ Nova empresa criada: "${companyName}"`);
       }
-    } else {
-      console.log(`   ❌ Não corresponde ao padrão: "${tracking.title}"`);
     }
   });
   
-  const result = Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
-  console.log('=== Empresas finais ===');
-  result.forEach(company => {
-    console.log(`${company.displayName}: ${company.trackingCount} processo(s)`);
-  });
-  
-  return result;
+  return Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function filterTrackingsByCompany(trackings: any[], companyName: string): any[] {
   return trackings.filter(tracking => {
-    // Tenta os três padrões
     let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
     if (!companyMatch) {
       companyMatch = tracking.title.match(/^\d+º\s+(.+?)$/);
