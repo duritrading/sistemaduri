@@ -126,7 +126,7 @@ export default function LoginPage() {
             ))}
             
             <div className="mt-6 text-center text-xs text-gray-500">
-              📊 Dados sincronizados do Asana
+              Dados sincronizados em tempo real
             </div>
           </div>
         )}
