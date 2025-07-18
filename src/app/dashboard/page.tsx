@@ -5,32 +5,18 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentCompany, clearCurrentCompany, filterTrackingsByCompany, type Company } from '@/lib/auth';
 import { ProcessesList } from '@/components/dashboard/ProcessesList';
-import { MetricsCards } from '@/components/dashboard/MetricsCards';
-import { MetricsCharts } from '@/components/MetricsCharts';
+import { DuriDashboard } from '@/components/dashboard/DuriDashboard';
 import { RefreshCw } from 'lucide-react';
-
-interface CompanyMetrics {
-  totalProcesses: number;
-  activeProcesses: number;
-  completedProcesses: number;
-  recentUpdates: number;
-  averageTimeToComplete: string;
-  topResponsible: string;
-  effectivenessRate: number;
-  statusBreakdown: Record<string, number>;
-  totalOperations: number;
-  activeOperations: number;
-  completedOperations: number;
-  effectiveRate: number;
-}
 
 export default function DashboardPage() {
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null);
   const [trackings, setTrackings] = useState<any[]>([]);
-  const [metrics, setMetrics] = useState<CompanyMetrics | null>(null);
+  const [filteredTrackings, setFilteredTrackings] = useState<any[]>([]);
+  const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -40,80 +26,149 @@ export default function DashboardPage() {
       return;
     }
     setCurrentCompany(company);
-    fetchTrackings();
+    fetchAccurateData();
   }, [router]);
 
-  const fetchTrackings = async () => {
+  const fetchAccurateData = async () => {
     try {
-      setLoading(true);
       setRefreshing(true);
       const timestamp = new Date().getTime();
-      const response = await fetch(`/api/asana/trackings?t=${timestamp}`);
+      
+      // Use accurate API that only pulls from Asana
+      const response = await fetch(`/api/asana/accurate-trackings?t=${timestamp}`);
       const result = await response.json();
       
       if (result.success) {
+        console.log('Raw data from Asana:', result);
+        
         const company = getCurrentCompany();
         if (company) {
-          const filteredTrackings = filterTrackingsByCompany(result.data, company.name);
-          setTrackings(filteredTrackings);
-          setMetrics(calculateMetrics(filteredTrackings));
+          const companyTrackings = filterTrackingsByCompany(result.data, company.name);
+          
+          console.log(`Filtered ${companyTrackings.length} trackings for ${company.name}`);
+          
+          setTrackings(companyTrackings);
+          setFilteredTrackings(companyTrackings);
+          
+          // Recalculate metrics for filtered data
+          const filteredMetrics = recalculateMetricsForFiltered(companyTrackings);
+          setMetrics(filteredMetrics);
+          setDebugInfo(result.debug);
+          
+          console.log('Final metrics for company:', filteredMetrics);
         }
       } else {
-        setError(result.error || 'Erro ao carregar trackings');
+        setError(result.error || 'Erro ao carregar dados precisos');
       }
     } catch (err) {
       setError('Erro de conexão');
-      console.error('Error fetching trackings:', err);
+      console.error('Error fetching accurate data:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const calculateMetrics = (trackings: any[]): CompanyMetrics => {
-    const totalProcesses = trackings.length;
-    const completedProcesses = trackings.filter(t => t.status === 'Concluído').length;
-    const activeProcesses = totalProcesses - completedProcesses;
+  const recalculateMetricsForFiltered = (companyTrackings: any[]) => {
+    const total = companyTrackings.length;
+    const completed = companyTrackings.filter(t => t.status === 'Concluído').length;
+    const active = total - completed;
     
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentUpdates = trackings.filter(t => {
-      const updateDate = new Date(t.lastUpdate.split('/').reverse().join('-'));
-      return updateDate > sevenDaysAgo;
+    // Count EXACT status distribution
+    const statusDistribution: Record<string, number> = {};
+    companyTrackings.forEach(t => {
+      const status = t.schedule?.operationalStatus || t.status;
+      statusDistribution[status] = (statusDistribution[status] || 0) + 1;
+    });
+    
+    const totalContainers = companyTrackings.reduce((sum, t) => {
+      return sum + (t.transport?.containers?.length || 0);
+    }, 0);
+    
+    const now = new Date();
+    const withDelays = companyTrackings.filter(t => {
+      if (t.schedule?.eta && t.status !== 'Concluído') {
+        try {
+          const etaDate = new Date(t.schedule.eta.split('/').reverse().join('-'));
+          return etaDate < now;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }).length;
+    
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const embarquesThisMonth = companyTrackings.filter(t => {
+      if (t.schedule?.etd) {
+        try {
+          const etdDate = new Date(t.schedule.etd.split('/').reverse().join('-'));
+          return etdDate.getMonth() === currentMonth && etdDate.getFullYear() === currentYear;
+        } catch {
+          return false;
+        }
+      }
+      return false;
     }).length;
 
-    const responsibleCount: Record<string, number> = {};
-    trackings.forEach(t => {
-      if (t.schedule?.responsible) {
-        responsibleCount[t.schedule.responsible] = (responsibleCount[t.schedule.responsible] || 0) + 1;
-      }
-    });
-    const topResponsible = Object.keys(responsibleCount).reduce((a, b) => 
-      responsibleCount[a] > responsibleCount[b] ? a : b, ''
-    );
-
-    const statusBreakdown: Record<string, number> = {};
-    trackings.forEach(t => {
-      const status = t.status === 'Concluído' ? 'Concluído' : 'Em dia';
-      statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
-    });
-
-    const effectivenessRate = totalProcesses > 0 ? Math.round((completedProcesses / totalProcesses) * 100) : 0;
-
-    return {
-      totalProcesses,
-      activeProcesses,
-      completedProcesses,
-      recentUpdates,
-      averageTimeToComplete: '45 dias',
-      topResponsible,
-      effectivenessRate,
-      statusBreakdown,
-      totalOperations: totalProcesses,
-      activeOperations: activeProcesses,
-      completedOperations: completedProcesses,
-      effectiveRate: effectivenessRate
+    const result = {
+      totalOperations: total,
+      activeOperations: active,
+      completedOperations: completed,
+      effectiveRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      statusDistribution,
+      totalContainers,
+      withDelays,
+      embarquesThisMonth
     };
+    
+    // Validation
+    const statusTotal = Object.values(statusDistribution).reduce((sum: number, count: number) => sum + count, 0);
+    console.log('Metrics validation for company:', {
+      totalOperations: total,
+      statusTotal,
+      statusBreakdown: statusDistribution,
+      mathCheck: statusTotal === total
+    });
+    
+    return result;
+  };
+
+  const handleFiltersChange = (filters: any) => {
+    let filtered = [...trackings];
+    
+    if (filters.ref !== 'Todas as REF') {
+      filtered = filtered.filter(t => t.title.includes(filters.ref));
+    }
+    
+    if (filters.status !== 'Todos os Status') {
+      filtered = filtered.filter(t => 
+        (t.schedule?.operationalStatus || t.status) === filters.status
+      );
+    }
+    
+    if (filters.exportador !== 'Todos Exportadores') {
+      filtered = filtered.filter(t => 
+        t.transport?.exporter === filters.exportador
+      );
+    }
+    
+    if (filters.produto !== 'Todos Produtos') {
+      filtered = filtered.filter(t => 
+        t.transport?.products?.includes(filters.produto) ||
+        t.transport?.commodity === filters.produto
+      );
+    }
+    
+    if (filters.orgaoAnuente !== 'Todos Órgãos') {
+      filtered = filtered.filter(t => 
+        t.regulatory?.orgaosAnuentes?.includes(filters.orgaoAnuente)
+      );
+    }
+    
+    setFilteredTrackings(filtered);
+    setMetrics(recalculateMetricsForFiltered(filtered));
   };
 
   const handleLogout = () => {
@@ -125,8 +180,8 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <RefreshCw className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Carregando dashboard...</p>
+          <RefreshCw className="animate-spin h-8 w-8 text-red-600 mx-auto mb-4" />
+          <p className="text-gray-600">Carregando dados precisos do Asana...</p>
         </div>
       </div>
     );
@@ -134,21 +189,23 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">
-              {currentCompany.displayName}
-            </h1>
-            <p className="text-sm text-gray-500">Sistema de Tracking Marítimo</p>
+          <div className="flex items-center">
+            <div className="text-2xl font-bold text-red-600 mr-4">duri</div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">
+                {currentCompany.displayName}
+              </h1>
+              <p className="text-sm text-gray-500">Sistema de Tracking Marítimo</p>
+            </div>
           </div>
           
           <div className="flex items-center space-x-4">
             <button
-              onClick={fetchTrackings}
+              onClick={fetchAccurateData}
               disabled={refreshing}
-              className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+              className="flex items-center text-red-600 hover:text-red-800 text-sm"
             >
               <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
               Atualizar
@@ -169,7 +226,7 @@ export default function DashboardPage() {
             <p className="text-red-800 font-medium">❌ Erro:</p>
             <p className="text-red-700">{error}</p>
             <button 
-              onClick={fetchTrackings}
+              onClick={fetchAccurateData}
               className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
             >
               Tentar Novamente
@@ -177,14 +234,25 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Processes Section - PRIMEIRO LUGAR */}
-        <ProcessesList processes={trackings} />
+        {/* Debug Info - Remove in production */}
+        {debugInfo && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-xs">
+            <strong>Debug:</strong> {debugInfo.totalTasksFromAsana} tasks do Asana → {debugInfo.processedTrackings} processados
+            {debugInfo.metricsBreakdown?.validation && !debugInfo.metricsBreakdown.validation.mathValid && (
+              <span className="text-red-600 ml-2">⚠️ Inconsistência matemática detectada</span>
+            )}
+          </div>
+        )}
+
+        <ProcessesList processes={filteredTrackings} />
         
-        {/* Metrics Cards */}
-        {metrics && <MetricsCards metrics={metrics} />}
-        
-        {/* Charts */}
-        {metrics && <MetricsCharts trackings={trackings} metrics={metrics} />}
+        {metrics && (
+          <DuriDashboard 
+            trackings={filteredTrackings} 
+            metrics={metrics} 
+            onFiltersChange={handleFiltersChange}
+          />
+        )}
       </main>
     </div>
   );
