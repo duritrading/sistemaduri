@@ -1,4 +1,4 @@
-// src/components/dashboard/ProcessesList.tsx
+// src/components/dashboard/ProcessesList.tsx - Interface corrigida
 'use client';
 
 import { Ship, Package, Clock, User, MapPin, Building2 } from 'lucide-react';
@@ -6,6 +6,12 @@ import { Ship, Package, Clock, User, MapPin, Building2 } from 'lucide-react';
 interface ProcessCardProps {
   process: any;
   onViewDetails: (id: string) => void;
+}
+
+// Interface corrigida para props recebidas
+interface ProcessesListProps {
+  trackings: any[];
+  company?: any;
 }
 
 function ProcessCard({ process, onViewDetails }: ProcessCardProps) {
@@ -91,10 +97,13 @@ function ProcessCard({ process, onViewDetails }: ProcessCardProps) {
   );
 }
 
-export function ProcessesList({ processes }: { processes: any[] }) {
+export function ProcessesList({ trackings, company }: ProcessesListProps) {
   const handleViewDetails = (id: string) => {
     window.open(`/tracking/${id}`, '_blank');
   };
+
+  // Null safety + default empty array
+  const processes = trackings || [];
 
   return (
     <div className="bg-white rounded-lg shadow border">
