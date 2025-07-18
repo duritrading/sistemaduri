@@ -19,6 +19,10 @@ export function MetricsCharts({ trackings, metrics }: MetricsChartsProps) {
   const shippingCompanyData = getShippingCompanies(trackings);
   const responsibleData = getResponsibles(trackings);
 
+  // Debug logging
+  console.log('Shipping companies found:', shippingCompanyData);
+  console.log('Sample tracking transport data:', trackings.slice(0, 2).map(t => t.transport));
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
       {/* Status Distribution */}
@@ -80,20 +84,39 @@ export function MetricsCharts({ trackings, metrics }: MetricsChartsProps) {
         </div>
       </div>
 
-      {/* Shipping Companies */}
+      {/* Enhanced Shipping Companies */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           🚢 Armadores/Navios
         </h3>
         <div className="space-y-3 max-h-64 overflow-y-auto">
-          {shippingCompanyData.map((company, index) => (
-            <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-              <span className="text-sm font-medium">{company.name}</span>
-              <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">
-                {company.count}
-              </span>
+          {shippingCompanyData.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>Nenhum dado de armador encontrado</p>
+              <p className="text-xs mt-1">Verifique os custom fields do Asana</p>
             </div>
-          ))}
+          ) : (
+            shippingCompanyData.map((company, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                <div className="flex-1">
+                  <span className="text-sm font-medium">{company.name}</span>
+                  {company.vessels && company.vessels.length > 0 && (
+                    <div className="text-xs text-gray-600 mt-1">
+                      Navios: {company.vessels.join(', ')}
+                    </div>
+                  )}
+                </div>
+                <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-medium">
+                  {company.count}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        
+        {/* Debug info - remove in production */}
+        <div className="mt-4 p-2 bg-yellow-50 rounded text-xs">
+          <strong>Debug:</strong> {trackings.filter(t => t.transport?.company && t.transport.company !== '').length} de {trackings.length} têm dados de armador
         </div>
       </div>
 
@@ -139,7 +162,9 @@ function getTopExporters(trackings: any[]): Array<{name: string, value: number}>
     const exporter = tracking.transport?.exporter || 
                     extractExporterFromTitle(tracking.title) || 
                     'Não informado';
-    exporters[exporter] = (exporters[exporter] || 0) + 1;
+    if (exporter && exporter !== 'Não informado') {
+      exporters[exporter] = (exporters[exporter] || 0) + 1;
+    }
   });
 
   return Object.entries(exporters)
@@ -148,16 +173,31 @@ function getTopExporters(trackings: any[]): Array<{name: string, value: number}>
     .slice(0, 5);
 }
 
-function getShippingCompanies(trackings: any[]): Array<{name: string, count: number}> {
-  const companies: Record<string, number> = {};
+function getShippingCompanies(trackings: any[]): Array<{name: string, count: number, vessels?: string[]}> {
+  const companies: Record<string, { count: number, vessels: Set<string> }> = {};
   
   trackings.forEach(tracking => {
-    const company = tracking.transport?.company || 'Não informado';
-    companies[company] = (companies[company] || 0) + 1;
+    const company = tracking.transport?.company;
+    const vessel = tracking.transport?.vessel;
+    
+    if (company && company !== '' && company !== 'Não informado') {
+      if (!companies[company]) {
+        companies[company] = { count: 0, vessels: new Set() };
+      }
+      companies[company].count++;
+      
+      if (vessel && vessel !== '') {
+        companies[company].vessels.add(vessel);
+      }
+    }
   });
 
   return Object.entries(companies)
-    .map(([name, count]) => ({ name, count }))
+    .map(([name, data]) => ({ 
+      name, 
+      count: data.count,
+      vessels: Array.from(data.vessels).slice(0, 3) // Limit to 3 vessels per company
+    }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 8);
 }
@@ -167,7 +207,9 @@ function getResponsibles(trackings: any[]): Array<{name: string, value: number}>
   
   trackings.forEach(tracking => {
     const responsible = tracking.schedule?.responsible || 'Não atribuído';
-    responsibles[responsible] = (responsibles[responsible] || 0) + 1;
+    if (responsible && responsible !== 'Não atribuído') {
+      responsibles[responsible] = (responsibles[responsible] || 0) + 1;
+    }
   });
 
   return Object.entries(responsibles)
