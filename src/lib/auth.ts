@@ -1,4 +1,6 @@
-// src/lib/auth.ts - Sistema de autenticação por empresa
+// src/lib/auth.ts - Criar se não existir
+'use client';
+
 export interface Company {
   id: string;
   name: string;
