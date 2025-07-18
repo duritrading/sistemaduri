@@ -1,4 +1,4 @@
-// src/app/login/page.tsx - Versão corrigida
+// src/app/login/page.tsx - Fix company extraction
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -18,14 +18,31 @@ export default function LoginPage() {
   const fetchCompanies = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/asana/trackings');
+      setError(null);
+      
+      console.log('Fetching companies from Asana...');
+      
+      // Use the accurate endpoint
+      const response = await fetch('/api/asana/accurate-trackings');
       const result = await response.json();
       
-      if (result.success) {
+      console.log('API Response:', result);
+      
+      if (result.success && result.data) {
+        console.log(`Found ${result.data.length} trackings`);
+        
+        // Log sample data for debugging
+        if (result.data.length > 0) {
+          console.log('Sample tracking:', result.data[0]);
+        }
+        
         const extractedCompanies = extractCompaniesFromTrackings(result.data);
+        console.log('Extracted companies:', extractedCompanies);
+        
         setCompanies(extractedCompanies);
       } else {
         setError(result.error || 'Erro ao carregar empresas');
+        console.error('API Error:', result.error);
       }
     } catch (err) {
       setError('Erro de conexão');
@@ -36,6 +53,7 @@ export default function LoginPage() {
   };
 
   const handleCompanyLogin = (company: Company) => {
+    console.log('Selected company:', company);
     setCurrentCompany(company);
     router.push('/dashboard');
   };
@@ -74,53 +92,44 @@ export default function LoginPage() {
 
         {!loading && !error && companies.length === 0 && (
           <div className="text-center py-8">
-            <p className="text-gray-600">Nenhuma empresa encontrada</p>
+            <p className="text-gray-600 mb-4">Nenhuma empresa encontrada</p>
             <button 
               onClick={fetchCompanies}
-              className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
             >
               Recarregar
             </button>
+            <div className="mt-4 text-xs text-gray-500">
+              📊 Dados sincronizados do Asana
+            </div>
           </div>
         )}
 
         {!loading && !error && companies.length > 0 && (
           <div className="space-y-3">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Empresas Disponíveis ({companies.length})
+              Empresas disponíveis ({companies.length}):
             </h2>
+            {companies.map((company) => (
+              <button
+                key={company.id}
+                onClick={() => handleCompanyLogin(company)}
+                className="w-full text-left p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+              >
+                <div className="font-medium text-gray-900">
+                  {company.displayName}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {company.trackingCount} {company.trackingCount === 1 ? 'processo' : 'processos'}
+                </div>
+              </button>
+            ))}
             
-            <div className="max-h-96 overflow-y-auto space-y-2">
-              {companies.map((company) => (
-                <button
-                  key={company.id}
-                  onClick={() => handleCompanyLogin(company)}
-                  className="w-full text-left p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors group"
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 group-hover:text-blue-600">
-                        {company.displayName}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        {company.trackingCount} processo{company.trackingCount !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                    <div className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      →
-                    </div>
-                  </div>
-                </button>
-              ))}
+            <div className="mt-6 text-center text-xs text-gray-500">
+              📊 Dados sincronizados do Asana
             </div>
           </div>
         )}
-
-        <div className="mt-8 pt-6 border-t border-gray-200 text-center">
-          <p className="text-xs text-gray-500">
-            📊 Dados sincronizados do Asana
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-// src/app/api/asana/accurate-trackings/route.ts
+// src/app/api/asana/accurate-trackings/route.ts - Separate company from exporter
 import { NextResponse } from 'next/server';
 import { AsanaClient } from '@/lib/asana-client';
 
@@ -10,27 +10,22 @@ export async function GET() {
     const operationalProject = await asanaClient.findOperationalProject(workspace.gid);
     const tasks = await asanaClient.getAllProjectTasks(operationalProject.gid);
     
-    console.log(`\n=== PROCESSING ${tasks.length} TASKS ===`);
+    console.log(`\n=== PROCESSING ${tasks.length} TASKS FROM ASANA ===`);
 
-    // Transform with comprehensive field mapping
     const trackings = tasks
       .filter(task => task.name && task.name.trim())
-      .map(task => transformTaskComplete(task));
+      .map(task => transformTaskCorrectly(task));
 
     console.log(`Transformed ${trackings.length} trackings`);
     
-    // Log sample for verification
-    if (trackings.length > 0) {
-      console.log('\n=== SAMPLE TRACKING ===');
-      console.log(JSON.stringify(trackings[0], null, 2));
-    }
+    // Log sample data for debugging
+    console.log('\n=== SAMPLE TRACKINGS ===');
+    trackings.slice(0, 5).forEach((t, i) => {
+      console.log(`${i + 1}. Title: "${t.title}" -> Company: "${t.company}" -> Exporter: "${t.transport.exporter}" -> REF: "${t.ref}"`);
+    });
 
-    // Calculate comprehensive metrics
-    const metrics = calculateComprehensiveMetrics(trackings);
+    const metrics = calculateRealMetrics(trackings);
     
-    console.log('\n=== CALCULATED METRICS ===');
-    console.log(JSON.stringify(metrics, null, 2));
-
     return NextResponse.json({
       success: true,
       data: trackings,
@@ -38,8 +33,7 @@ export async function GET() {
       debug: {
         totalTasksFromAsana: tasks.length,
         processedTrackings: trackings.length,
-        sampleData: trackings.slice(0, 2),
-        metricsBreakdown: metrics
+        sampleData: trackings.slice(0, 5)
       }
     });
 
@@ -53,82 +47,81 @@ export async function GET() {
   }
 }
 
-function transformTaskComplete(task: any) {
-  console.log(`\n--- Transforming: ${task.name} ---`);
+function transformTaskCorrectly(task: any) {
+  console.log(`\n--- Processing: ${task.name} ---`);
   
-  // Build comprehensive field map
-  const fieldMap = new Map<string, any>();
+  // Extract custom fields
+  const fields = new Map<string, string>();
   
-  // Extract custom fields with all possible values
   if (task.custom_fields && Array.isArray(task.custom_fields)) {
     task.custom_fields.forEach((field: any) => {
       if (field.name) {
         const value = extractFieldValue(field);
-        if (value) {
-          // Store with original name and normalized versions
-          fieldMap.set(field.name, value);
-          fieldMap.set(field.name.toLowerCase(), value);
-          fieldMap.set(normalizeFieldName(field.name), value);
-          
+        if (value && value.trim()) {
+          fields.set(field.name, value.trim());
           console.log(`  Field: "${field.name}" = "${value}"`);
         }
       }
     });
   }
 
-  // Extract from notes
-  const notesExtracted = extractFromNotes(task.notes || '');
-  Object.entries(notesExtracted).forEach(([key, value]) => {
-    if (value) {
-      fieldMap.set(key, value);
-      console.log(`  Notes: "${key}" = "${value}"`);
-    }
-  });
+  // ALWAYS extract company from task title (not from Exportador field)
+  const titleInfo = extractCompanyAndRefFromTitle(task.name);
+  console.log(`  Company from title: "${titleInfo.company}"`);
+  console.log(`  REF from title: "${titleInfo.ref}"`);
+  
+  // Exportador is a separate custom field
+  const exportadorField = fields.get('Exportador') || '';
+  console.log(`  Exportador field: "${exportadorField}"`);
 
-  // Extract company info
-  const companyInfo = extractCompanyInfo(task.name);
-  console.log(`  Company: "${companyInfo.company}", REF: "${companyInfo.ref}"`);
-
-  // Determine status with multiple strategies
-  const status = determineTaskStatus(task, fieldMap);
-  console.log(`  Status: "${status}"`);
-
-  // Build tracking object with all extracted data
   const tracking = {
     id: generateTrackingId(task.name),
     asanaId: task.gid,
     title: task.name,
     description: task.notes || '',
-    company: companyInfo.company,
-    ref: companyInfo.ref,
-    status,
+    
+    // Company ALWAYS comes from title
+    company: titleInfo.company,
+    ref: titleInfo.ref,
+    status: determineRealStatus(task, fields),
+    priority: fields.get('Prioridade') || '',
+    
+    business: {
+      empresa: fields.get('EMPRESA') || '',
+      servicos: fields.get('SERVIÇOS') || '',
+      beneficioFiscal: fields.get('Benefício Fiscal') || '',
+      canal: fields.get('Canal') || ''
+    },
     
     transport: {
-      vessel: getFieldValue(fieldMap, ['navio', 'vessel', 'embarcação', 'ship', 'mv']),
-      company: getFieldValue(fieldMap, ['armador', 'shipping line', 'companhia marítima', 'carrier']),
-      containers: parseArrayField(getFieldValue(fieldMap, ['containers', 'container', 'cntr', 'contêineres'])),
-      products: parseArrayField(getFieldValue(fieldMap, ['produto', 'products', 'commodity', 'mercadoria'])),
-      exporter: companyInfo.company,
-      terminal: getFieldValue(fieldMap, ['terminal', 'porto', 'port']),
-      bl: getFieldValue(fieldMap, ['bl', 'bill of lading', 'conhecimento']),
-      booking: getFieldValue(fieldMap, ['booking', 'reserva'])
+      vessel: fields.get('NAVIO') || '',
+      company: fields.get('CIA DE TRANSPORTE') || '',
+      containers: parseArray(fields.get('CNTR')),
+      products: parseArray(fields.get('PRODUTO')),
+      // Exportador is the custom field, NOT the company
+      exporter: exportadorField,
+      terminal: fields.get('Terminal') || '',
+      despachante: fields.get('Despachante') || '',
+      transportadora: fields.get('TRANSPORTADORA') || ''
     },
     
     schedule: {
-      etd: getFieldValue(fieldMap, ['etd', 'embarque', 'sailing date']),
-      eta: getFieldValue(fieldMap, ['eta', 'chegada', 'arrival']),
-      operationalStatus: getFieldValue(fieldMap, ['status operacional', 'situação', 'estado']),
-      responsible: getFieldValue(fieldMap, ['responsável', 'responsible']) || task.assignee?.name || 'Não atribuído'
+      etd: fields.get('ETD') || '',
+      eta: fields.get('ETA') || '',
+      fimFreetime: fields.get('Fim do Freetime') || '',
+      fimArmazenagem: fields.get('Fim da armazenagem') || '',
+      operationalStatus: fields.get('Status') || '',
+      adiantamento: fields.get('Adiantamento') || '',
+      responsible: task.assignee?.name || ''
+    },
+    
+    documentation: {
+      bl: fields.get('Nº BL/AWB') || '',
+      invoice: fields.get('INVOICE') || ''
     },
     
     regulatory: {
-      orgaosAnuentes: parseArrayField(getFieldValue(fieldMap, ['órgãos anuentes', 'orgaos', 'licenses'])),
-      licenses: parseArrayField(getFieldValue(fieldMap, ['licenças', 'li', 'permits']))
-    },
-    
-    financial: {
-      freight: getFieldValue(fieldMap, ['frete', 'freight']),
-      currency: getFieldValue(fieldMap, ['moeda', 'currency']) || 'USD'
+      orgaosAnuentes: parseArray(fields.get('Órgãos Anuentes'))
     },
     
     lastUpdate: new Date().toLocaleDateString('pt-BR')
@@ -137,8 +130,49 @@ function transformTaskComplete(task: any) {
   return tracking;
 }
 
+function extractCompanyAndRefFromTitle(title: string): { company: string, ref: string } {
+  if (!title || typeof title !== 'string') {
+    return { company: '', ref: '' };
+  }
+  
+  console.log(`  Extracting from title: "${title}"`);
+  
+  // Patterns to extract company from task title format: "17º AMZ (IMPORTAÇÃO)"
+  const patterns = [
+    // Pattern 1: "17º AMZ (IMPORTAÇÃO)" -> REF: "17", Company: "AMZ"
+    /^(\d+)[º°]\s+([A-Z][A-Z0-9\s&.-]*?)(?:\s*\(.*\))?$/,
+    
+    // Pattern 2: "115º WCB" -> REF: "115", Company: "WCB"
+    /^(\d+)[º°]\s+([A-Z][A-Z0-9\s&.-]+?)$/,
+    
+    // Pattern 3: Handle spaces in company names: "17º AMZ COMPANY (details)"
+    /^(\d+)[º°]\s+([A-Z][A-Z0-9\s&.-]*?)(?:\s*\(|$)/
+  ];
+  
+  for (let i = 0; i < patterns.length; i++) {
+    const pattern = patterns[i];
+    const match = title.match(pattern);
+    
+    if (match && match[1] && match[2]) {
+      const ref = match[1];
+      let company = match[2].trim();
+      
+      // Clean up company name - remove trailing spaces and dots
+      company = company.replace(/[.\s]+$/, '');
+      
+      console.log(`  Pattern ${i + 1} matched - REF: "${ref}", Company: "${company}"`);
+      
+      if (company && company.length > 0) {
+        return { company, ref };
+      }
+    }
+  }
+  
+  console.log(`  No pattern matched for: "${title}"`);
+  return { company: '', ref: '' };
+}
+
 function extractFieldValue(field: any): string {
-  // Try all possible value fields
   return field.text_value || 
          field.number_value?.toString() || 
          field.enum_value?.name ||
@@ -146,99 +180,24 @@ function extractFieldValue(field: any): string {
          '';
 }
 
-function normalizeFieldName(name: string): string {
-  return name.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove accents
-    .replace(/[^a-z0-9\s]/g, '') // Remove special chars
-    .replace(/\s+/g, '_') // Replace spaces with underscore
-    .trim();
-}
-
-function getFieldValue(fieldMap: Map<string, any>, possibleNames: string[]): string {
-  for (const name of possibleNames) {
-    // Try exact match
-    if (fieldMap.has(name)) return fieldMap.get(name);
-    
-    // Try lowercase
-    if (fieldMap.has(name.toLowerCase())) return fieldMap.get(name.toLowerCase());
-    
-    // Try normalized
-    const normalized = normalizeFieldName(name);
-    if (fieldMap.has(normalized)) return fieldMap.get(normalized);
-    
-    // Try partial match
-    for (const [key, value] of fieldMap.entries()) {
-      if (key.toLowerCase().includes(name.toLowerCase()) || 
-          name.toLowerCase().includes(key.toLowerCase())) {
-        return value;
-      }
-    }
-  }
-  return '';
-}
-
-function extractFromNotes(notes: string): Record<string, string> {
-  const extracted: Record<string, string> = {};
-  
-  if (!notes) return extracted;
-  
-  const patterns = [
-    { key: 'navio', regex: /(?:navio|vessel|ship|m\.?v\.?)[:\s]+([^\n\r,;]+)/i },
-    { key: 'armador', regex: /(?:armador|shipping\s*line)[:\s]+([^\n\r,;]+)/i },
-    { key: 'containers', regex: /(?:containers?|cntr)[:\s]+([^\n\r]+)/i },
-    { key: 'bl', regex: /(?:bl|b\/l)[:\s#]+([^\n\r,;\s]+)/i },
-    { key: 'produto', regex: /(?:produto|commodity)[:\s]+([^\n\r,;]+)/i }
-  ];
-  
-  patterns.forEach(({ key, regex }) => {
-    const match = notes.match(regex);
-    if (match && match[1]) {
-      extracted[key] = match[1].trim();
-    }
-  });
-  
-  return extracted;
-}
-
-function extractCompanyInfo(title: string): { company: string, ref: string } {
-  // Multiple patterns to handle different title formats
-  const patterns = [
-    /^(\d+)º?\s+([^(\-\n]+?)(?:\s*\([^)]*\))?(?:\s*-.*)?$/,
-    /^(\d+)\s*[-–]\s*([^(\-\n]+)/,
-    /^(\d+)\s+([A-Z][A-Za-z\s]+?)(?:\s|$)/,
-    /^([A-Z][A-Za-z\s]+?)(?:\s*\(|$)/
-  ];
-  
-  for (const pattern of patterns) {
-    const match = title.match(pattern);
-    if (match) {
-      const ref = match[1] || '';
-      const company = (match[2] || match[1] || '').trim();
-      
-      if (company && company.length > 1) {
-        return { company, ref };
-      }
-    }
+function determineRealStatus(task: any, fields: Map<string, string>): string {
+  if (fields.has('Status') && fields.get('Status')!.trim()) {
+    return fields.get('Status')!;
   }
   
-  return { company: 'Não identificado', ref: '' };
-}
-
-function determineTaskStatus(task: any, fieldMap: Map<string, any>): string {
-  // Try to get status from custom fields first
-  const statusFromFields = getFieldValue(fieldMap, [
-    'status', 'situação', 'estado', 'status operacional'
-  ]);
+  if (fields.has('Prioridade') && fields.get('Prioridade')!.trim()) {
+    const prioridade = fields.get('Prioridade')!.toLowerCase();
+    if (prioridade.includes('baixa')) return 'Em dia';
+    if (prioridade.includes('alta')) return 'Em atraso'; 
+    if (prioridade.includes('média')) return 'Em risco';
+    return fields.get('Prioridade')!;
+  }
   
-  if (statusFromFields) return statusFromFields;
-  
-  // Fallback to Asana completion
   return task.completed ? 'Concluído' : 'Em Progresso';
 }
 
-function parseArrayField(value: string): string[] {
-  if (!value) return [];
+function parseArray(value: string | undefined): string[] {
+  if (!value || !value.trim()) return [];
   
   return value.split(/[,;\n|\/]/)
     .map(item => item.trim())
@@ -253,68 +212,99 @@ function generateTrackingId(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-function calculateComprehensiveMetrics(trackings: any[]) {
+function calculateRealMetrics(trackings: any[]) {
   const total = trackings.length;
   
-  console.log('\n=== CALCULATING METRICS ===');
+  console.log('\n=== CALCULATING REAL METRICS ===');
   console.log(`Total trackings: ${total}`);
+  
+  // Company distribution (from title)
+  const companyDist: Record<string, number> = {};
+  trackings.forEach(t => {
+    const company = t.company;
+    if (company && company.trim()) {
+      companyDist[company] = (companyDist[company] || 0) + 1;
+    }
+  });
   
   // Status distribution
   const statusDist: Record<string, number> = {};
   trackings.forEach(t => {
-    const status = t.status || 'Não Definido';
-    statusDist[status] = (statusDist[status] || 0) + 1;
+    const status = t.status;
+    if (status) {
+      statusDist[status] = (statusDist[status] || 0) + 1;
+    }
   });
-  console.log('Status distribution:', statusDist);
   
-  // Company distribution  
-  const companyDist: Record<string, number> = {};
+  // Shipping lines from CIA DE TRANSPORTE field
+  const shippingLines = new Set<string>();
   trackings.forEach(t => {
-    const company = t.company || 'Não Identificado';
-    companyDist[company] = (companyDist[company] || 0) + 1;
-  });
-  console.log('Company distribution:', companyDist);
-  
-  // Shipping lines
-  const shippingLines = new Set();
-  trackings.forEach(t => {
-    if (t.transport?.company && t.transport.company !== '') {
+    if (t.transport?.company && t.transport.company.trim()) {
       shippingLines.add(t.transport.company);
     }
   });
-  console.log('Shipping lines found:', Array.from(shippingLines));
   
-  // Products
-  const allProducts = new Set();
+  // Products from PRODUTO field
+  const allProducts = new Set<string>();
   trackings.forEach(t => {
-    if (t.transport?.products) {
-      t.transport.products.forEach((p: string) => allProducts.add(p));
+    if (t.transport?.products && Array.isArray(t.transport.products)) {
+      t.transport.products.forEach((p: string) => {
+        if (p && p.trim()) {
+          allProducts.add(p);
+        }
+      });
     }
   });
-  console.log('Products found:', Array.from(allProducts));
+  
+  // Terminals
+  const terminals = new Set<string>();
+  trackings.forEach(t => {
+    if (t.transport?.terminal && t.transport.terminal.trim()) {
+      terminals.add(t.transport.terminal);
+    }
+  });
   
   // Containers
   const totalContainers = trackings.reduce((sum, t) => {
     return sum + (t.transport?.containers?.length || 0);
   }, 0);
-  console.log('Total containers:', totalContainers);
+  
+  // Órgãos anuentes
+  const orgaosAnuentes = new Set<string>();
+  trackings.forEach(t => {
+    if (t.regulatory?.orgaosAnuentes && Array.isArray(t.regulatory.orgaosAnuentes)) {
+      t.regulatory.orgaosAnuentes.forEach((o: string) => {
+        if (o && o.trim()) {
+          orgaosAnuentes.add(o);
+        }
+      });
+    }
+  });
   
   const completed = trackings.filter(t => t.status === 'Concluído').length;
-  const effectiveRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+  
+  console.log('Company distribution:', companyDist);
+  console.log('Status distribution:', statusDist);
+  console.log('Shipping lines:', Array.from(shippingLines));
+  console.log('Terminals:', Array.from(terminals));
+  console.log('Total containers:', totalContainers);
   
   return {
     totalOperations: total,
     activeOperations: total - completed,
     completedOperations: completed,
-    effectiveRate,
+    effectiveRate: total > 0 ? Math.round((completed / total) * 100) : 0,
     statusDistribution: statusDist,
     companyDistribution: companyDist,
     uniqueExporters: Object.keys(companyDist).length,
     uniqueShippingLines: shippingLines.size,
-    totalContainers: Math.max(totalContainers, total), // Ensure at least 1 per operation
-    withDelays: 0, // Calculate based on dates if available
-    embarquesThisMonth: Math.floor(total * 0.3), // Estimate for now
+    uniqueTerminals: terminals.size,
+    totalContainers: totalContainers,
+    withDelays: 0,
+    embarquesThisMonth: 0,
     allProducts: Array.from(allProducts),
-    allShippingLines: Array.from(shippingLines)
+    allShippingLines: Array.from(shippingLines),
+    allTerminals: Array.from(terminals),
+    allOrgaosAnuentes: Array.from(orgaosAnuentes)
   };
 }

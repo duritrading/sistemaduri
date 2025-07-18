@@ -1,8 +1,8 @@
-// src/components/dashboard/DuriDashboard.tsx
+// src/components/dashboard/DuriDashboard.tsx - Remove ALL fallbacks
 'use client';
 
-import { useState, useEffect } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, LineChart, Line, CartesianGrid, Tooltip, Legend } from 'recharts';
+import { useState } from 'react';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, ResponsiveContainer, LineChart, Line, CartesianGrid, Tooltip } from 'recharts';
 
 interface DuriDashboardProps {
   trackings: any[];
@@ -20,13 +20,39 @@ export function DuriDashboard({ trackings, metrics, onFiltersChange }: DuriDashb
   });
 
   const getFilterOptions = () => {
-    const refs = ['Todas as REF', ...new Set(trackings.map(t => t.ref || 'S/REF').filter(Boolean))];
-    const statuses = ['Todos os Status', ...new Set(trackings.map(t => t.status))];
-    const exportadores = ['Todos Exportadores', ...new Set(trackings.map(t => t.company).filter(Boolean))];
-    const produtos = ['Todos Produtos', ...new Set(trackings.flatMap(t => t.transport?.products || []))];
-    const orgaos = ['Todos Órgãos', ...new Set(trackings.flatMap(t => t.regulatory?.orgaosAnuentes || []))];
-    
-    return { refs, statuses, exportadores, produtos, orgaos };
+    const refsSet = new Set(['Todas as REF']);
+    const statusesSet = new Set(['Todos os Status']);
+    const exportadoresSet = new Set(['Todos Exportadores']);
+    const produtosSet = new Set(['Todos Produtos']);
+    const orgaosSet = new Set(['Todos Órgãos']);
+
+    if (trackings && Array.isArray(trackings)) {
+      trackings.forEach(t => {
+        if (t?.ref && t.ref.trim()) refsSet.add(t.ref);
+        if (t?.status && t.status.trim()) statusesSet.add(t.status);
+        if (t?.company && t.company.trim()) exportadoresSet.add(t.company);
+        
+        if (t?.transport?.products && Array.isArray(t.transport.products)) {
+          t.transport.products.forEach((p: string) => {
+            if (p && p.trim()) produtosSet.add(p);
+          });
+        }
+        
+        if (t?.regulatory?.orgaosAnuentes && Array.isArray(t.regulatory.orgaosAnuentes)) {
+          t.regulatory.orgaosAnuentes.forEach((o: string) => {
+            if (o && o.trim()) orgaosSet.add(o);
+          });
+        }
+      });
+    }
+
+    return {
+      refs: Array.from(refsSet),
+      statuses: Array.from(statusesSet),
+      exportadores: Array.from(exportadoresSet),
+      produtos: Array.from(produtosSet),
+      orgaos: Array.from(orgaosSet)
+    };
   };
 
   const handleFilterChange = (filterType: string, value: string) => {
@@ -38,18 +64,34 @@ export function DuriDashboard({ trackings, metrics, onFiltersChange }: DuriDashb
   return (
     <div className="space-y-8">
       <FiltersSection filters={filters} filterOptions={getFilterOptions()} onFilterChange={handleFilterChange} />
-      <MetricsCards metrics={metrics} />
+      <MetricsCards metrics={metrics} trackings={trackings} />
       <ChartsGrid trackings={trackings} metrics={metrics} />
     </div>
   );
 }
 
-function MetricsCards({ metrics }: { metrics: any }) {
+function MetricsCards({ metrics, trackings }: { metrics: any, trackings: any[] }) {
   const cards = [
-    { title: 'Exportadores Únicos', value: metrics.uniqueExporters || 0, color: 'bg-red-50' },
-    { title: 'Linhas Marítimas', value: metrics.uniqueShippingLines || 0, color: 'bg-red-50' },
-    { title: 'Terminal Principal', value: 'TECON', color: 'bg-red-50' },
-    { title: 'Tempo Médio', value: '23 dias', color: 'bg-red-50' }
+    { 
+      title: 'Exportadores Únicos', 
+      value: metrics?.uniqueExporters || 0, 
+      color: 'bg-red-50' 
+    },
+    { 
+      title: 'Linhas Marítimas', 
+      value: metrics?.uniqueShippingLines || 0, 
+      color: 'bg-red-50' 
+    },
+    { 
+      title: 'Terminais', 
+      value: metrics?.uniqueTerminals || 0, 
+      color: 'bg-red-50' 
+    },
+    { 
+      title: 'Total Containers', 
+      value: metrics?.totalContainers || 0, 
+      color: 'bg-red-50' 
+    }
   ];
 
   return (
@@ -65,337 +107,320 @@ function MetricsCards({ metrics }: { metrics: any }) {
 }
 
 function ChartsGrid({ trackings, metrics }: { trackings: any[], metrics: any }) {
-  // Prepare data for charts with fallbacks
-  const statusData = Object.entries(metrics.statusDistribution || {}).map(([name, value]) => ({
-    name,
-    value,
-    fill: getStatusColor(name)
-  }));
-
-  const exportersData = getTopExporters(trackings);
-  const productsData = getTopProducts(trackings);
-  const armadoresData = getArmadores(trackings);
-  const orgaosData = getOrgaosData(trackings);
-  const etdData = getETDData(trackings);
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-      {/* Distribuição por Status */}
+      {/* Status Distribution - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Distribuição por Status
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={statusData.length > 0 ? statusData : [{ name: 'Sem dados', value: 1, fill: '#ccc' }]}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                dataKey="value"
-              />
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          {prepareStatusData(metrics?.statusDistribution).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={prepareStatusData(metrics.statusDistribution)}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  dataKey="value"
+                  label={({ name, value }) => `${name}: ${value}`}
+                >
+                  {prepareStatusData(metrics.statusDistribution).map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de status
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Top Exportadores */}
+      {/* Top Exportadores - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Top Exportadores
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={exportersData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="value" fill="#dc2626" />
-            </BarChart>
-          </ResponsiveContainer>
+          {prepareExportersData(trackings).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={prepareExportersData(trackings)} margin={{ bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" fill="#dc2626" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de exportadores
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Produtos Principais */}
+      {/* Produtos Principais - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Produtos Principais
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={productsData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="value" fill="#dc2626" />
-            </BarChart>
-          </ResponsiveContainer>
+          {prepareProductsData(trackings).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={prepareProductsData(trackings)} margin={{ bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" fill="#dc2626" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de produtos
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Órgãos Anuentes */}
+      {/* Órgãos Anuentes - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Órgãos Anuentes
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={orgaosData}
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                dataKey="value"
-                label
-              >
-                {orgaosData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={['#dc2626', '#ef4444', '#f87171'][index % 3]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          {prepareOrgaosData(trackings).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={prepareOrgaosData(trackings)}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  dataKey="value"
+                  label={({ name, value }) => `${name}: ${value}`}
+                >
+                  {prepareOrgaosData(trackings).map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={getOrgaoColor(index)} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de órgãos anuentes
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Armadores */}
+      {/* Armadores - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Armadores
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={armadoresData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="value" fill="#dc2626" />
-            </BarChart>
-          </ResponsiveContainer>
+          {prepareArmadoresData(trackings).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={prepareArmadoresData(trackings)}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" fontSize={12} />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" fill="#dc2626" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de armadores
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Cronograma ETD */}
+      {/* Cronograma ETD - ONLY real data */}
       <div className="bg-white p-6 rounded-lg shadow border">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <div className="w-4 h-1 bg-red-500 mr-2"></div>
           Cronograma ETD
         </h3>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={etdData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="count" stroke="#dc2626" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
+          {prepareETDData(trackings).length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={prepareETDData(trackings)}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="count" stroke="#dc2626" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Sem dados de ETD
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function getStatusColor(status: string): string {
-  const colors: Record<string, string> = {
-    'Em Progresso': '#f97316',
-    'Concluído': '#16a34a',
-    'Em dia': '#3b82f6',
-    'Cancelado': '#dc2626',
-    'Atrasado': '#dc2626'
-  };
-  return colors[status] || '#6b7280';
+// Helper functions that return EMPTY arrays if no real data
+function prepareStatusData(statusDistribution: Record<string, number> | undefined) {
+  if (!statusDistribution || Object.keys(statusDistribution).length === 0) {
+    return [];
+  }
+  return Object.entries(statusDistribution).map(([name, value]) => ({
+    name, value, fill: getStatusColor(name)
+  }));
 }
 
-function getTopExporters(trackings: any[]): Array<{name: string, value: number}> {
+function prepareExportersData(trackings: any[]) {
   const exporters: Record<string, number> = {};
-  
   trackings.forEach(tracking => {
-    const exporter = tracking.company || 'Não Identificado';
-    exporters[exporter] = (exporters[exporter] || 0) + 1;
-  });
-
-  const result = Object.entries(exporters)
-    .map(([name, value]) => ({ 
-      name: name.length > 10 ? name.substring(0, 10) + '...' : name, 
-      value 
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
-
-  return result.length > 0 ? result : [{ name: 'Sem dados', value: 0 }];
-}
-
-function getTopProducts(trackings: any[]): Array<{name: string, value: number}> {
-  const products: Record<string, number> = {};
-  
-  trackings.forEach(tracking => {
-    const productList = tracking.transport?.products || [];
-    productList.forEach((product: string) => {
-      products[product] = (products[product] || 0) + 1;
-    });
-  });
-
-  const result = Object.entries(products)
-    .map(([name, value]) => ({ 
-      name: name.length > 10 ? name.substring(0, 10) + '...' : name, 
-      value 
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
-
-  return result.length > 0 ? result : [{ name: 'Sem dados', value: 0 }];
-}
-
-function getArmadores(trackings: any[]): Array<{name: string, value: number}> {
-  const armadores: Record<string, number> = {};
-  
-  trackings.forEach(tracking => {
-    const company = tracking.transport?.company || 'Não informado';
-    if (company !== 'Não informado') {
-      armadores[company] = (armadores[company] || 0) + 1;
+    if (tracking?.company && tracking.company.trim()) {
+      exporters[tracking.company] = (exporters[tracking.company] || 0) + 1;
     }
   });
-
-  const result = Object.entries(armadores)
-    .map(([name, value]) => ({ 
-      name: name.length > 8 ? name.substring(0, 8) + '...' : name, 
-      value 
-    }))
+  return Object.entries(exporters)
+    .map(([name, value]) => ({ name: name.length > 12 ? name.substring(0, 12) + '...' : name, value }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 4);
-
-  return result.length > 0 ? result : [{ name: 'Sem dados', value: 0 }];
+    .slice(0, 6);
 }
 
-function getOrgaosData(trackings: any[]): Array<{name: string, value: number}> {
-  const orgaos: Record<string, number> = {};
-  
+function prepareProductsData(trackings: any[]) {
+  const products: Record<string, number> = {};
   trackings.forEach(tracking => {
-    const orgaosList = tracking.regulatory?.orgaosAnuentes || [];
-    orgaosList.forEach((orgao: string) => {
-      orgaos[orgao] = (orgaos[orgao] || 0) + 1;
-    });
+    if (tracking?.transport?.products && Array.isArray(tracking.transport.products)) {
+      tracking.transport.products.forEach((product: string) => {
+        if (product && product.trim()) {
+          products[product] = (products[product] || 0) + 1;
+        }
+      });
+    }
   });
-
-  const result = Object.entries(orgaos)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  return result.length > 0 ? result : [
-    { name: 'SEM LI', value: 8 },
-    { name: 'ANVISA', value: 4 },
-    { name: 'ANP', value: 1 }
-  ];
+  return Object.entries(products)
+    .map(([name, value]) => ({ name: name.length > 12 ? name.substring(0, 12) + '...' : name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
 }
 
-function getETDData(trackings: any[]): Array<{month: string, count: number}> {
-  const etdData: Record<string, number> = {};
-  
+function prepareArmadoresData(trackings: any[]) {
+  const armadores: Record<string, number> = {};
   trackings.forEach(tracking => {
-    if (tracking.schedule?.etd) {
+    if (tracking?.transport?.company && tracking.transport.company.trim()) {
+      armadores[tracking.transport.company] = (armadores[tracking.transport.company] || 0) + 1;
+    }
+  });
+  return Object.entries(armadores)
+    .map(([name, value]) => ({ name: name.length > 10 ? name.substring(0, 10) + '...' : name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}
+
+function prepareOrgaosData(trackings: any[]) {
+  const orgaos: Record<string, number> = {};
+  trackings.forEach(tracking => {
+    if (tracking?.regulatory?.orgaosAnuentes && Array.isArray(tracking.regulatory.orgaosAnuentes)) {
+      tracking.regulatory.orgaosAnuentes.forEach((orgao: string) => {
+        if (orgao && orgao.trim()) {
+          orgaos[orgao] = (orgaos[orgao] || 0) + 1;
+        }
+      });
+    }
+  });
+  return Object.entries(orgaos)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}
+
+function prepareETDData(trackings: any[]) {
+  const etdData: Record<string, number> = {};
+  trackings.forEach(tracking => {
+    if (tracking?.schedule?.etd) {
       try {
-        const date = new Date(tracking.schedule.etd.split('/').reverse().join('-'));
-        const month = date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
-        etdData[month] = (etdData[month] || 0) + 1;
-      } catch {
+        let date: Date;
+        const etd = tracking.schedule.etd;
+        
+        if (etd.includes('/')) {
+          const parts = etd.split('/');
+          if (parts.length === 3) {
+            date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+          } else return;
+        } else {
+          date = new Date(etd);
+        }
+        
+        if (!isNaN(date.getTime())) {
+          const month = date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+          etdData[month] = (etdData[month] || 0) + 1;
+        }
+      } catch (error) {
         // Skip invalid dates
       }
     }
   });
-
-  const result = Object.entries(etdData)
+  return Object.entries(etdData)
     .map(([month, count]) => ({ month, count }))
     .sort((a, b) => a.month.localeCompare(b.month));
+}
 
-  return result.length > 0 ? result : [
-    { month: 'Jul/25', count: 3 },
-    { month: 'Ago/25', count: 5 },
-    { month: 'Set/25', count: 2 }
-  ];
+function getStatusColor(status: string): string {
+  const colors: Record<string, string> = {
+    'Em Progresso': '#3b82f6', 'Em dia': '#16a34a', 'Em atraso': '#dc2626',
+    'Em risco': '#f59e0b', 'Concluído': '#10b981', 'Baixa': '#16a34a',
+    'Alta': '#dc2626', 'Média': '#f59e0b'
+  };
+  return colors[status] || '#6b7280';
+}
+
+function getOrgaoColor(index: number): string {
+  const colors = ['#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca'];
+  return colors[index % colors.length];
 }
 
 function FiltersSection({ filters, filterOptions, onFilterChange }: any) {
   return (
     <div className="bg-gray-100 rounded-lg p-4">
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">REF</label>
-          <select 
-            value={filters.ref}
-            onChange={(e) => onFilterChange('ref', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md text-sm"
-          >
-            {filterOptions.refs.map((ref: string) => (
-              <option key={ref} value={ref}>{ref}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">STATUS</label>
-          <select 
-            value={filters.status}
-            onChange={(e) => onFilterChange('status', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md text-sm"
-          >
-            {filterOptions.statuses.map((status: string) => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">EXPORTADOR</label>
-          <select 
-            value={filters.exportador}
-            onChange={(e) => onFilterChange('exportador', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md text-sm"
-          >
-            {filterOptions.exportadores.map((exp: string) => (
-              <option key={exp} value={exp}>{exp}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">PRODUTO</label>
-          <select 
-            value={filters.produto}
-            onChange={(e) => onFilterChange('produto', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md text-sm"
-          >
-            {filterOptions.produtos.map((prod: string) => (
-              <option key={prod} value={prod}>{prod}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">ÓRGÃO ANUENTE</label>
-          <select 
-            value={filters.orgaoAnuente}
-            onChange={(e) => onFilterChange('orgaoAnuente', e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md text-sm"
-          >
-            {filterOptions.orgaos.map((orgao: string) => (
-              <option key={orgao} value={orgao}>{orgao}</option>
-            ))}
-          </select>
-        </div>
+        {Object.entries(filters).map(([key, value]) => {
+          const options = filterOptions[key === 'ref' ? 'refs' : 
+                                     key === 'status' ? 'statuses' :
+                                     key === 'exportador' ? 'exportadores' :
+                                     key === 'produto' ? 'produtos' : 'orgaos'] || [];
+          
+          return (
+            <div key={key}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {key.toUpperCase()}
+              </label>
+              <select 
+                value={value as string}
+                onChange={(e) => onFilterChange(key, e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md text-sm"
+              >
+                {options.map((option: string) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

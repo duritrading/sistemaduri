@@ -181,7 +181,7 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="animate-spin h-8 w-8 text-red-600 mx-auto mb-4" />
-          <p className="text-gray-600">Carregando dados precisos do Asana...</p>
+          <p className="text-gray-600">Carregando dados...</p>
         </div>
       </div>
     );
