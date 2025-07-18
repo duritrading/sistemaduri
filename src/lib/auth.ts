@@ -1,4 +1,4 @@
-// src/lib/auth.ts - Versão limpa sem debug
+// src/lib/auth.ts - Corrected filtering
 'use client';
 
 export interface Company {
@@ -11,22 +11,13 @@ export interface Company {
 export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
   const companies = new Map<string, Company>();
   
-  trackings.forEach(tracking => {
-    // Primeiro tenta o padrão com parêntese: "número + nome + (observação)"
-    let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
+  console.log('\n=== EXTRACTING COMPANIES ===');
+  
+  trackings.forEach((tracking, index) => {
+    const companyName = tracking.company || 'Não identificado';
+    console.log(`Tracking ${index}: "${tracking.title}" -> Company: "${companyName}"`);
     
-    // Se não encontrou, tenta padrão sem parêntese: "número + nome"
-    if (!companyMatch) {
-      companyMatch = tracking.title.match(/^\d+º\s+(.+?)$/);
-    }
-    
-    // Se ainda não encontrou, tenta padrão com hífen: "número + nome - resto"
-    if (!companyMatch) {
-      companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*-/);
-    }
-    
-    if (companyMatch) {
-      const companyName = companyMatch[1].trim();
+    if (companyName && companyName !== 'Não identificado') {
       const companyId = companyName.toLowerCase().replace(/\s+/g, '');
       
       if (companies.has(companyId)) {
@@ -42,25 +33,26 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
     }
   });
   
-  return Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const result = Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
+  console.log('Extracted companies:', result);
+  
+  return result;
 }
 
 export function filterTrackingsByCompany(trackings: any[], companyName: string): any[] {
-  return trackings.filter(tracking => {
-    let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
-    if (!companyMatch) {
-      companyMatch = tracking.title.match(/^\d+º\s+(.+?)$/);
-    }
-    if (!companyMatch) {
-      companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*-/);
-    }
+  console.log(`\n=== FILTERING BY COMPANY: "${companyName}" ===`);
+  
+  const filtered = trackings.filter((tracking, index) => {
+    const trackingCompany = tracking.company || 'Não identificado';
+    const matches = trackingCompany.toLowerCase() === companyName.toLowerCase();
     
-    if (companyMatch) {
-      const trackingCompany = companyMatch[1].trim();
-      return trackingCompany.toLowerCase() === companyName.toLowerCase();
-    }
-    return false;
+    console.log(`Tracking ${index}: "${tracking.title}" -> Company: "${trackingCompany}" -> Matches: ${matches}`);
+    
+    return matches;
   });
+  
+  console.log(`Filtered ${filtered.length} trackings for company "${companyName}"`);
+  return filtered;
 }
 
 export function setCurrentCompany(company: Company): void {
