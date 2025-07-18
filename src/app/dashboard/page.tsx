@@ -1,10 +1,11 @@
-// src/app/dashboard/page.tsx - Dashboard com métricas gerais da empresa
+// src/app/dashboard/page.tsx - Compact grid + enhanced metrics
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getCurrentCompany, clearCurrentCompany, filterTrackingsByCompany, type Company } from '@/lib/auth';
+import { MetricsCharts } from '@/components/MetricsCharts';
 
 interface CompanyMetrics {
   totalProcesses: number;
@@ -13,9 +14,8 @@ interface CompanyMetrics {
   recentUpdates: number;
   averageTimeToComplete: string;
   topResponsible: string;
-  statusBreakdown: {
-    [key: string]: number;
-  };
+  effectivenessRate: number;
+  statusBreakdown: Record<string, number>;
 }
 
 export default function DashboardPage() {
@@ -69,7 +69,6 @@ export default function DashboardPage() {
     const completedProcesses = trackings.filter(t => t.status === 'Concluído').length;
     const activeProcesses = totalProcesses - completedProcesses;
     
-    // Processos atualizados nos últimos 7 dias
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const recentUpdates = trackings.filter(t => {
@@ -77,8 +76,7 @@ export default function DashboardPage() {
       return updateDate > sevenDaysAgo;
     }).length;
 
-    // Responsável mais frequente
-    const responsibleCount: { [key: string]: number } = {};
+    const responsibleCount: Record<string, number> = {};
     trackings.forEach(t => {
       if (t.schedule?.responsible) {
         responsibleCount[t.schedule.responsible] = (responsibleCount[t.schedule.responsible] || 0) + 1;
@@ -88,19 +86,22 @@ export default function DashboardPage() {
       responsibleCount[a] > responsibleCount[b] ? a : b, ''
     );
 
-    // Breakdown por status
-    const statusBreakdown: { [key: string]: number } = {};
+    const statusBreakdown: Record<string, number> = {};
     trackings.forEach(t => {
-      statusBreakdown[t.status] = (statusBreakdown[t.status] || 0) + 1;
+      const status = t.status === 'Concluído' ? 'Concluído' : 'Em dia';
+      statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
     });
+
+    const effectivenessRate = totalProcesses > 0 ? Math.round((completedProcesses / totalProcesses) * 100) : 0;
 
     return {
       totalProcesses,
       activeProcesses,
       completedProcesses,
       recentUpdates,
-      averageTimeToComplete: '45 dias', // Placeholder
+      averageTimeToComplete: '45 dias',
       topResponsible,
+      effectivenessRate,
       statusBreakdown
     };
   };
@@ -110,19 +111,7 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: { [key: string]: string } = {
-      'Em Progresso': 'bg-blue-100 text-blue-800',
-      'Concluído': 'bg-green-100 text-green-800',
-      'Planejamento': 'bg-yellow-100 text-yellow-800',
-      'Atrasado': 'bg-red-100 text-red-800'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  if (!currentCompany) {
-    return null;
-  }
+  if (!currentCompany) return null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -133,21 +122,20 @@ export default function DashboardPage() {
             <h1 className="text-xl font-bold text-gray-900">
               {currentCompany.displayName}
             </h1>
-            <p className="text-sm text-gray-500">
-              Sistema de Tracking Marítimo
-            </p>
+            <p className="text-sm text-gray-500">Sistema de Tracking Marítimo</p>
           </div>
           
           <div className="flex items-center space-x-4">
+            <span className="text-sm text-gray-500">Ocultar Métricas</span>
             <button
               onClick={fetchTrackings}
-              className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+              className="text-blue-600 hover:text-blue-800 text-sm"
             >
-              🔄 Atualizar
+              🔄
             </button>
             <button
               onClick={handleLogout}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm"
             >
               Sair
             </button>
@@ -155,7 +143,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-6">
         {loading && (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
@@ -176,108 +164,61 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!loading && !error && (
+        {!loading && !error && metrics && (
           <>
-            {/* Dashboard Metrics */}
-            {metrics && (
-              <div className="mb-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                  Dashboard - {currentCompany.displayName}
-                </h2>
-                
-                {/* Key Metrics */}
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <div className="flex items-center">
-                      <div className="p-3 rounded-full bg-blue-100">
-                        <span className="text-2xl">📦</span>
-                      </div>
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Total de Processos</p>
-                        <p className="text-2xl font-bold text-gray-900">{metrics.totalProcesses}</p>
-                      </div>
-                    </div>
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="bg-orange-500 text-white p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Total de Operações</p>
+                    <p className="text-2xl font-bold">{metrics.totalProcesses}</p>
                   </div>
-
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <div className="flex items-center">
-                      <div className="p-3 rounded-full bg-green-100">
-                        <span className="text-2xl">✅</span>
-                      </div>
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Concluídos</p>
-                        <p className="text-2xl font-bold text-green-600">{metrics.completedProcesses}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <div className="flex items-center">
-                      <div className="p-3 rounded-full bg-orange-100">
-                        <span className="text-2xl">🚢</span>
-                      </div>
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Em Andamento</p>
-                        <p className="text-2xl font-bold text-orange-600">{metrics.activeProcesses}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <div className="flex items-center">
-                      <div className="p-3 rounded-full bg-purple-100">
-                        <span className="text-2xl">🔄</span>
-                      </div>
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">Atualizações Recentes</p>
-                        <p className="text-2xl font-bold text-purple-600">{metrics.recentUpdates}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Status Breakdown */}
-                <div className="bg-white p-6 rounded-lg shadow border mb-8">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Status dos Processos</h3>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    {Object.entries(metrics.statusBreakdown).map(([status, count]) => (
-                      <div key={status} className="flex justify-between items-center p-3 rounded-lg bg-gray-50">
-                        <span className="font-medium text-gray-700">{status}</span>
-                        <span className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(status)}`}>
-                          {count}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Additional Info */}
-                <div className="grid gap-6 md:grid-cols-2 mb-8">
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Responsável Principal</h3>
-                    <div className="flex items-center">
-                      <span className="text-2xl mr-3">👤</span>
-                      <span className="text-gray-700">{metrics.topResponsible || 'Não definido'}</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-6 rounded-lg shadow border">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Tempo Médio</h3>
-                    <div className="flex items-center">
-                      <span className="text-2xl mr-3">⏱️</span>
-                      <span className="text-gray-700">{metrics.averageTimeToComplete}</span>
-                    </div>
-                  </div>
+                  <span className="text-2xl">📦</span>
                 </div>
               </div>
-            )}
 
-            {/* Processes List */}
-            <div className="bg-white rounded-lg shadow border">
-              <div className="px-6 py-4 border-b border-gray-200">
+              <div className="bg-orange-500 text-white p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Taxa de Efetividade</p>
+                    <p className="text-2xl font-bold">{metrics.effectivenessRate}%</p>
+                  </div>
+                  <span className="text-2xl">✓</span>
+                </div>
+              </div>
+
+              <div className="bg-orange-500 text-white p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Operações Ativas</p>
+                    <p className="text-2xl font-bold">{metrics.activeProcesses}</p>
+                  </div>
+                  <span className="text-2xl">🚢</span>
+                </div>
+              </div>
+
+              <div className="bg-orange-500 text-white p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Atualizações Recentes</p>
+                    <p className="text-2xl font-bold">{metrics.recentUpdates}</p>
+                  </div>
+                  <span className="text-2xl">🔄</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts */}
+            <MetricsCharts trackings={trackings} metrics={metrics} />
+
+            {/* Processes Grid */}
+            <div className="bg-white rounded-lg shadow border mt-8">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">
                   Seus Processos de Importação ({trackings.length})
                 </h3>
+                <span className="text-sm text-gray-500">Ocultar Métricas</span>
               </div>
 
               {trackings.length === 0 ? (
@@ -290,50 +231,53 @@ export default function DashboardPage() {
                   </p>
                 </div>
               ) : (
-                <div className="p-6">
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <div className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {trackings.map((tracking) => (
                       <Link
                         key={tracking.id}
                         href={`/tracking/${tracking.id}`}
-                        className="border border-gray-200 p-4 rounded-lg hover:shadow-md transition-shadow hover:border-blue-300 group"
+                        className="border border-gray-200 p-3 rounded-lg hover:shadow-md transition-shadow hover:border-blue-300 group"
                       >
-                        <div className="flex justify-between items-start mb-3">
-                          <h4 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors text-sm leading-tight">
                             {tracking.title}
                           </h4>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(tracking.status)}`}>
-                            {tracking.status}
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 ml-2 flex-shrink-0">
+                            Em Progresso
                           </span>
                         </div>
                         
-                        <p className="text-gray-600 text-sm mb-3 line-clamp-2">
-                          {tracking.description || 'Processo de importação marítima'}
+                        <p className="text-gray-600 text-xs mb-2 line-clamp-2">
+                          Processo de importação marítima
                         </p>
                         
                         <div className="space-y-1 text-xs text-gray-500">
                           {tracking.transport?.vessel && (
-                            <div className="flex items-center gap-2">
-                              🚢 <span>{tracking.transport.vessel}</span>
+                            <div className="flex items-center gap-1">
+                              <span>🚢</span>
+                              <span className="truncate">{tracking.transport.vessel}</span>
                             </div>
                           )}
                           
                           {tracking.schedule?.eta && (
-                            <div className="flex items-center gap-2">
-                              📅 <span>ETA: {tracking.schedule.eta}</span>
+                            <div className="flex items-center gap-1">
+                              <span>📅</span>
+                              <span>ETA: {tracking.schedule.eta}</span>
                             </div>
                           )}
                           
                           {tracking.schedule?.responsible && (
-                            <div className="flex items-center gap-2">
-                              👤 <span>{tracking.schedule.responsible}</span>
+                            <div className="flex items-center gap-1">
+                              <span>👤</span>
+                              <span className="truncate">{tracking.schedule.responsible}</span>
                             </div>
                           )}
                         </div>
                         
-                        <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+                        <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
                           <span className="text-xs text-gray-400">
-                            Atualizado: {tracking.lastUpdate}
+                            {tracking.lastUpdate}
                           </span>
                           <span className="text-blue-600 text-xs font-medium group-hover:text-blue-800">
                             Ver Detalhes →
