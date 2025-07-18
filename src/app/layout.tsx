@@ -1,4 +1,4 @@
-// src/app/layout.tsx - Remove Navigation temporariamente
+// src/app/layout.tsx - Versão super simples
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
@@ -6,11 +6,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: {
-    template: '%s | Portfolio',
-    default: 'Portfolio',
-  },
-  description: 'Portfolio profissional de projetos',
+  title: 'Portfolio - Tracking Marítimo',
+  description: 'Sistema de tracking marítimo com dados do Asana',
 };
 
 export default function RootLayout({
@@ -21,12 +18,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={inter.className}>
-        <div className="min-h-screen bg-gray-50">
-          {/* Navigation removida temporariamente */}
-          <main>
-            {children}
-          </main>
-        </div>
+        {children}
       </body>
     </html>
   );
