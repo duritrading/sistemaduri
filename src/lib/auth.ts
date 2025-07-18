@@ -1,4 +1,4 @@
-// src/lib/auth.ts - Criar se não existir
+// src/lib/auth.ts - Versão com debug e mais flexível
 'use client';
 
 export interface Company {
@@ -11,14 +11,34 @@ export interface Company {
 export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
   const companies = new Map<string, Company>();
   
-  trackings.forEach(tracking => {
-    const companyMatch = tracking.title.match(/^\d+º\s+([^-]+)/);
+  console.log('=== DEBUG: Analisando trackings ===');
+  console.log('Total de trackings:', trackings.length);
+  
+  trackings.forEach((tracking, index) => {
+    console.log(`${index + 1}. "${tracking.title}"`);
+    
+    // Primeiro tenta o padrão com parêntese: "número + nome + (observação)"
+    let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
+    
+    // Se não encontrou, tenta padrão sem parêntese: "número + nome"
+    if (!companyMatch) {
+      companyMatch = tracking.title.match(/^\d+º\s+(.+?)$/);
+    }
+    
+    // Se ainda não encontrou, tenta padrão com hífen: "número + nome - resto"
+    if (!companyMatch) {
+      companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*-/);
+    }
+    
     if (companyMatch) {
       const companyName = companyMatch[1].trim();
-      const companyId = companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const companyId = companyName.toLowerCase().replace(/\s+/g, '');
+      
+      console.log(`   ✅ Extraído: "${companyName}" (ID: ${companyId})`);
       
       if (companies.has(companyId)) {
         companies.get(companyId)!.trackingCount++;
+        console.log(`   📈 Incrementado contador para "${companyName}"`);
       } else {
         companies.set(companyId, {
           id: companyId,
@@ -26,16 +46,33 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
           displayName: companyName,
           trackingCount: 1
         });
+        console.log(`   ✨ Nova empresa criada: "${companyName}"`);
       }
+    } else {
+      console.log(`   ❌ Não corresponde ao padrão: "${tracking.title}"`);
     }
   });
   
-  return Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const result = Array.from(companies.values()).sort((a, b) => a.name.localeCompare(b.name));
+  console.log('=== Empresas finais ===');
+  result.forEach(company => {
+    console.log(`${company.displayName}: ${company.trackingCount} processo(s)`);
+  });
+  
+  return result;
 }
 
 export function filterTrackingsByCompany(trackings: any[], companyName: string): any[] {
   return trackings.filter(tracking => {
-    const companyMatch = tracking.title.match(/^\d+º\s+([^-]+)/);
+    // Tenta os três padrões
+    let companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*\(/);
+    if (!companyMatch) {
+      companyMatch = tracking.title.match(/^\d+º\s+(.+?)$/);
+    }
+    if (!companyMatch) {
+      companyMatch = tracking.title.match(/^\d+º\s+(.+?)\s*-/);
+    }
+    
     if (companyMatch) {
       const trackingCompany = companyMatch[1].trim();
       return trackingCompany.toLowerCase() === companyName.toLowerCase();
