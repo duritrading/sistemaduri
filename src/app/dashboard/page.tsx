@@ -1,4 +1,4 @@
-// src/app/dashboard/page.tsx - Dashboard Limpo e Simplificado
+// src/app/dashboard/page.tsx - Dashboard completamente limpo
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -31,11 +31,21 @@ export default function DashboardPage() {
       
       setCompany(currentCompany);
 
-      // Verificar status da configuração do Asana
-      const statusResponse = await fetch('/api/asana/status');
-      if (statusResponse.ok) {
-        const status = await statusResponse.json();
-        setConfigStatus(status);
+      // Verificar status da configuração do Asana (sem quebrar se falhar)
+      try {
+        const statusResponse = await fetch('/api/asana/status');
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          setConfigStatus(status);
+        }
+      } catch (statusError) {
+        console.warn('Não foi possível verificar status do Asana:', statusError);
+        // Definir status padrão
+        setConfigStatus({
+          tokenConfigured: false,
+          usingMockData: true,
+          message: 'Usando dados de demonstração'
+        });
       }
 
     } catch (err) {
@@ -71,9 +81,15 @@ export default function DashboardPage() {
             <p className="mb-4">{error}</p>
             <button 
               onClick={() => initializeDashboard()}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mr-2"
             >
               Tentar Novamente
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+            >
+              Voltar ao Login
             </button>
           </div>
         </div>
@@ -122,7 +138,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Aviso sobre dados de demonstração */}
+      {/* Aviso sobre dados de demonstração (somente se necessário) */}
       {configStatus && !configStatus.tokenConfigured && (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
