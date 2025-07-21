@@ -1,4 +1,4 @@
-// src/lib/auth.ts - Integração corrigida para filtragem por empresa
+// src/lib/auth.ts - Fix com todas as funções necessárias
 export interface Company {
   id: string;
   name: string;
@@ -99,6 +99,52 @@ export function filterTrackingsByCompany(trackings: any[], companyName: string):
   console.log(`📊 Resultado: ${filtered.length} trackings filtrados de ${trackings.length} total`);
   
   return filtered;
+}
+
+// ✅ FUNÇÃO QUE ESTAVA FALTANDO - FIX DO ERRO DE IMPORT
+export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
+  if (!trackings || !Array.isArray(trackings)) {
+    console.log('⚠️ Trackings inválidos para extração de empresas');
+    return [];
+  }
+
+  console.log(`🔍 Extraindo empresas de ${trackings.length} trackings`);
+  
+  // Extrair empresas únicas dos trackings
+  const uniqueCompanies = new Set<string>();
+  
+  trackings.forEach(tracking => {
+    const company = tracking.company || extractCompanyFromTitle(tracking.title || '');
+    if (company && company !== 'UNKNOWN' && company !== 'Não identificado') {
+      uniqueCompanies.add(company);
+    }
+  });
+
+  // Mapear para objetos Company
+  const extractedCompanies = Array.from(uniqueCompanies).map(companyName => {
+    // Procurar nas empresas conhecidas primeiro
+    const knownCompany = companies.find(c => 
+      c.name.toLowerCase() === companyName.toLowerCase()
+    );
+    
+    if (knownCompany) {
+      return knownCompany;
+    }
+    
+    // Se não encontrar, criar uma nova entrada
+    return {
+      id: companyName.toLowerCase().replace(/\s+/g, ''),
+      name: companyName,
+      displayName: companyName
+    };
+  });
+
+  console.log(`📊 Empresas extraídas: ${extractedCompanies.length}`);
+  extractedCompanies.forEach(company => {
+    console.log(`   - ${company.name} (${company.displayName})`);
+  });
+
+  return extractedCompanies;
 }
 
 export function extractCompanyFromTitle(title: string): string {
