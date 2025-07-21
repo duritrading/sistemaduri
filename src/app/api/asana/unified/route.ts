@@ -1,34 +1,17 @@
-// src/app/api/asana/unified/route.ts - VERSÃO COMPLETA SEM ERROS
+// src/app/api/asana/unified/route.ts - EXTRAÇÃO OTIMIZADA PARA GRÁFICOS
 import { NextRequest, NextResponse } from 'next/server';
 
 // ✅ Cache otimizado
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 const companyCache = new Map<string, { data: any; timestamp: number }>();
 
-// ✅ CAMPOS EXATOS da imagem do Asana
+// ✅ CAMPOS EXATOS com ordem de prioridade
 const EXACT_CUSTOM_FIELDS = [
-  'Prioridade',
-  'Status', 
-  'Adiantamento',
-  'EMPRESA',
-  'SERVIÇOS',
-  'Benefício Fiscal',
-  'PRODUTO',
-  'ETD',
-  'ETA',
-  'CNTR',
-  'Nº BL/AWB',
-  'INVOICE',
-  'Canal',
-  'Exportador',
-  'CIA DE TRANSPORTE',
-  'NAVIO',
-  'Terminal',
-  'Órgãos Anuentes',
-  'Despachante',
-  'TRANSPORTADORA',
-  'Fim do Freetime',
-  'Fim da armazenagem'
+  'Prioridade', 'Status', 'Adiantamento', 'EMPRESA', 'SERVIÇOS',
+  'Benefício Fiscal', 'PRODUTO', 'ETD', 'ETA', 'CNTR', 'Nº BL/AWB',
+  'INVOICE', 'Canal', 'Exportador', 'CIA DE TRANSPORTE', 'NAVIO',
+  'Terminal', 'Órgãos Anuentes', 'Despachante', 'TRANSPORTADORA',
+  'Fim do Freetime', 'Fim da armazenagem'
 ];
 
 export async function GET(request: NextRequest) {
@@ -101,7 +84,7 @@ export async function GET(request: NextRequest) {
     const sectionsData = await sectionsResponse.json();
     const sections = sectionsData.data || [];
 
-    // ✅ STEP 4: Get tasks with optimized fields
+    // ✅ STEP 4: Get tasks with campos otimizados para gráficos
     const optFields = [
       'name', 'completed', 'created_at', 'modified_at',
       'assignee.name',
@@ -147,7 +130,7 @@ export async function GET(request: NextRequest) {
       
     } while (offset);
 
-    // ✅ STEP 5: Process tasks safely
+    // ✅ STEP 5: Process tasks com extração otimizada para gráficos
     const processedTrackings = allTasks.map((task: any) => {
       try {
         const customFields = extractExactCustomFields(task.custom_fields || []);
@@ -161,7 +144,6 @@ export async function GET(request: NextRequest) {
           asanaSection = extractAsanaSection(task, sections);
           maritimeStatus = mapSectionToMaritimeStatus(asanaSection, task.completed, customFields['Status']);
         } catch (sectionError) {
-          console.warn('Erro ao extrair seção, usando fallback:', sectionError);
           maritimeStatus = mapStatusToMaritimeStage(customFields['Status'], task.completed);
         }
         
@@ -180,7 +162,7 @@ export async function GET(request: NextRequest) {
             blAwb: customFields['Nº BL/AWB'] || null,
             containers: parseListField(customFields['CNTR']),
             terminal: customFields['Terminal'] || null,
-            products: parseListField(customFields['PRODUTO']),
+            products: parseListField(customFields['PRODUTO']), // ✅ Produtos processados corretamente
             transportadora: customFields['TRANSPORTADORA'] || null,
             despachante: customFields['Despachante'] || null
           },
@@ -210,7 +192,7 @@ export async function GET(request: NextRequest) {
           },
           
           regulatory: {
-            orgaosAnuentes: parseListField(customFields['Órgãos Anuentes'])
+            orgaosAnuentes: parseListField(customFields['Órgãos Anuentes']) // ✅ Órgãos processados corretamente
           },
           
           structure: {
@@ -219,33 +201,23 @@ export async function GET(request: NextRequest) {
           
           maritimeStatus,
           customFields,
-          lastUpdate: task.modified_at || new Date().toISOString()
+          lastUpdate: new Date().toISOString()
         };
-        
-      } catch (taskError) {
-        console.error('Erro ao processar task:', task.gid, taskError);
+      } catch (error) {
+        // ✅ Return minimal tracking object em caso de erro
         return {
           id: task.gid,
           asanaId: task.gid,
           title: task.name || 'Título não disponível',
           company: 'NÃO_IDENTIFICADO',
           ref: '',
-          status: 'Em Progresso',
-          transport: {
-            exporter: null, company: null, vessel: null, blAwb: null,
-            containers: [], terminal: null, products: [], transportadora: null, despachante: null
-          },
-          schedule: {
-            etd: null, eta: null, fimFreetime: null, fimArmazenagem: null,
-            responsible: null, createdAt: task.created_at, modifiedAt: task.modified_at
-          },
-          business: {
-            empresa: null, servicos: null, beneficioFiscal: null,
-            canal: null, prioridade: null, adiantamento: null
-          },
+          status: 'Erro',
+          transport: { exporter: null, company: null, vessel: null, blAwb: null, containers: [], terminal: null, products: [], transportadora: null, despachante: null },
+          schedule: { etd: null, eta: null, fimFreetime: null, fimArmazenagem: null, responsible: null, createdAt: task.created_at, modifiedAt: task.modified_at },
+          business: { empresa: null, servicos: null, beneficioFiscal: null, canal: null, prioridade: null, adiantamento: null },
           documentation: { invoice: null, blAwb: null },
           regulatory: { orgaosAnuentes: [] },
-          structure: { section: 'Erro na extração' },
+          structure: { section: 'Sem seção' },
           maritimeStatus: 'Abertura do Processo',
           customFields: {},
           lastUpdate: new Date().toISOString()
@@ -253,12 +225,12 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // ✅ STEP 6: Apply company filter
+    // ✅ Filter by company if specified
     const filteredTrackings = companyFilter 
       ? processedTrackings.filter(tracking => tracking.company === companyFilter)
       : processedTrackings;
 
-    // ✅ Generate metrics
+    // ✅ Generate metrics otimizadas
     const metrics = {
       totalTasks: allTasks.length,
       processedTrackings: filteredTrackings.length,
@@ -271,7 +243,15 @@ export async function GET(request: NextRequest) {
         const section = t.structure?.section || 'Sem seção';
         acc[section] = (acc[section] || 0) + 1;
         return acc;
-      }, {} as Record<string, number>)
+      }, {} as Record<string, number>),
+      // ✅ Métricas adicionais para debug dos gráficos
+      chartDataQuality: {
+        exportersWithData: filteredTrackings.filter(t => t.transport?.exporter).length,
+        productsWithData: filteredTrackings.filter(t => t.transport?.products?.length > 0).length,
+        transportCompaniesWithData: filteredTrackings.filter(t => t.transport?.company).length,
+        orgaosAnuentesWithData: filteredTrackings.filter(t => t.regulatory?.orgaosAnuentes?.length > 0).length,
+        etdWithData: filteredTrackings.filter(t => t.schedule?.etd).length
+      }
     };
 
     const result = {
@@ -287,19 +267,16 @@ export async function GET(request: NextRequest) {
         sectionNames: sections.map((s: any) => s.name),
         customFieldsExtracted: EXACT_CUSTOM_FIELDS.length,
         lastSync: new Date().toISOString(),
-        extractionLevel: 'SECTION_BASED_STATUS_MAPPING'
+        extractionLevel: 'OPTIMIZED_FOR_CHARTS'
       }
     };
 
     // ✅ Cache result
     companyCache.set(cacheKey, { data: result, timestamp: Date.now() });
 
-    console.log(`✅ Extração finalizada: ${filteredTrackings.length} trackings processados`);
     return NextResponse.json(result);
 
   } catch (error) {
-    console.error('❌ Erro na extração:', error);
-    
     return NextResponse.json({
       success: false,
       data: [],
@@ -308,7 +285,14 @@ export async function GET(request: NextRequest) {
         processedTrackings: 0,
         companies: [],
         statusDistribution: {},
-        sectionDistribution: {}
+        sectionDistribution: {},
+        chartDataQuality: {
+          exportersWithData: 0,
+          productsWithData: 0,
+          transportCompaniesWithData: 0,
+          orgaosAnuentesWithData: 0,
+          etdWithData: 0
+        }
       },
       meta: {
         workspace: 'Erro',
@@ -327,19 +311,18 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ✅ EXTRACT EXACT CUSTOM FIELDS
+// ✅ EXTRACT EXACT CUSTOM FIELDS - Otimizado para gráficos
 function extractExactCustomFields(customFields: any[]): Record<string, any> {
   const fields: Record<string, any> = {};
   
   if (!Array.isArray(customFields)) return fields;
 
   customFields.forEach(field => {
-    if (!field?.name) return;
-    
-    if (!EXACT_CUSTOM_FIELDS.includes(field.name)) return;
+    if (!field?.name || !EXACT_CUSTOM_FIELDS.includes(field.name)) return;
     
     let value: any = null;
 
+    // ✅ Ordem de prioridade otimizada para extração precisa
     if (field.display_value !== undefined && field.display_value !== null && field.display_value !== '') {
       value = field.display_value;
     } else if (field.text_value !== undefined && field.text_value !== null && field.text_value !== '') {
@@ -362,6 +345,24 @@ function extractExactCustomFields(customFields: any[]): Record<string, any> {
   });
 
   return fields;
+}
+
+// ✅ PARSE LIST FIELD - Função otimizada para processar arrays/strings
+function parseListField(value: any): string[] {
+  if (!value) return [];
+  
+  if (Array.isArray(value)) {
+    return value.filter(item => item && typeof item === 'string' && item.trim() !== '');
+  }
+  
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value
+      .split(/[,;|]/) // Split por vírgula, ponto-vírgula ou pipe
+      .map(item => item.trim())
+      .filter(item => item !== '');
+  }
+  
+  return [];
 }
 
 // ✅ EXTRACT ASANA SECTION SAFELY
@@ -390,7 +391,6 @@ function extractAsanaSection(task: any, sections: any[]): string {
     
     return 'Sem seção';
   } catch (error) {
-    console.warn('Erro na extração de seção:', error);
     return 'Sem seção';
   }
 }
@@ -398,13 +398,8 @@ function extractAsanaSection(task: any, sections: any[]): string {
 // ✅ MAP SECTION TO MARITIME STATUS
 function mapSectionToMaritimeStatus(sectionName: string, isCompleted: boolean, customFieldStatus?: string): string {
   try {
-    if (isCompleted) {
-      return 'Processos Finalizados';
-    }
-    
-    if (!sectionName || typeof sectionName !== 'string') {
-      return 'Abertura do Processo';
-    }
+    if (isCompleted) return 'Processos Finalizados';
+    if (!sectionName || typeof sectionName !== 'string') return 'Abertura do Processo';
     
     const cleanSectionName = sectionName.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
     
@@ -418,32 +413,15 @@ function mapSectionToMaritimeStatus(sectionName: string, isCompleted: boolean, c
       'Abertura do Processo': 'Abertura do Processo'
     };
     
-    if (sectionMap[cleanSectionName]) {
-      return sectionMap[cleanSectionName];
-    }
+    if (sectionMap[cleanSectionName]) return sectionMap[cleanSectionName];
     
     const lowerSectionName = cleanSectionName.toLowerCase();
     for (const [key, value] of Object.entries(sectionMap)) {
-      if (key.toLowerCase() === lowerSectionName) {
-        return value;
-      }
-    }
-    
-    if (customFieldStatus && typeof customFieldStatus === 'string') {
-      const statusMap: Record<string, string> = {
-        'Concluído': 'Processos Finalizados',
-        'Em Progresso': 'Rastreio da Carga',
-        'A Embarcar': 'Pré Embarque'
-      };
-      
-      if (statusMap[customFieldStatus]) {
-        return statusMap[customFieldStatus];
-      }
+      if (key.toLowerCase() === lowerSectionName) return value;
     }
     
     return 'Abertura do Processo';
   } catch (error) {
-    console.warn('Erro no mapeamento de status:', error);
     return 'Abertura do Processo';
   }
 }
@@ -501,14 +479,4 @@ function extractReference(title: string): string {
   }
   
   return '';
-}
-
-// ✅ PARSE LIST FIELD
-function parseListField(value: string | null): string[] {
-  if (!value) return [];
-  
-  return value
-    .split(/[,;\n]/)
-    .map(item => item.trim())
-    .filter(Boolean);
 }

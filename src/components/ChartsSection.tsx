@@ -1,4 +1,4 @@
-// src/components/ChartsSection.tsx - Gráficos Separados com Debug
+// src/components/ChartsSection.tsx - VERSÃO CORRIGIDA PARA EXIBIÇÃO DOS DADOS
 'use client';
 
 import { useMemo } from 'react';
@@ -51,230 +51,305 @@ interface ChartsSectionProps {
   trackings: Tracking[];
 }
 
-// ✅ Cores para gráfico de pizza
-const PIE_COLORS = [
+// ✅ Cores otimizadas para gráficos
+const CHART_COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', 
   '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
 ];
 
-export function ChartsSection({ trackings }: ChartsSectionProps) {
-  // ✅ Debug dos dados recebidos
-  console.log('📊 ChartsSection - Total trackings recebidos:', trackings.length);
+// ✅ FUNÇÕES DE EXTRAÇÃO MELHORADAS
+const extractDataFromAllSources = (tracking: Tracking, fieldName: string): string | null => {
+  // Lista COMPLETA de possíveis fontes para cada campo
+  const fieldMappings: Record<string, string[]> = {
+    'Exportador': ['Exportador', 'EXPORTADOR', 'exportador'],
+    'PRODUTO': ['PRODUTO', 'Produto', 'produto', 'PRODUCTS', 'Products'],
+    'CIA DE TRANSPORTE': ['CIA DE TRANSPORTE', 'Cia de Transporte', 'COMPANHIA', 'Companhia'],
+    'Órgãos Anuentes': ['Órgãos Anuentes', 'ÓRGÃOS ANUENTES', 'Orgaos Anuentes', 'ORGAOS_ANUENTES'],
+    'ETD': ['ETD', 'etd', 'Data ETD', 'DATA_ETD']
+  };
+
+  const possibleFields = fieldMappings[fieldName] || [fieldName];
   
-  if (trackings.length > 0) {
-    const sample = trackings[0];
-    console.log('📋 Sample tracking para debug:');
-    console.log('  - Exporter:', sample.transport?.exporter);
-    console.log('  - Products:', sample.transport?.products);
-    console.log('  - Transport Company:', sample.transport?.company);
-    console.log('  - Órgãos Anuentes:', sample.regulatory?.orgaosAnuentes);
-    console.log('  - ETD:', sample.schedule?.etd);
-    console.log('  - Custom Fields Keys:', Object.keys(sample.customFields || {}));
+  // 1. Tentar customFields primeiro (todas as variações)
+  for (const field of possibleFields) {
+    const value = tracking.customFields?.[field];
+    if (value && typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
   }
 
-  // ✅ Processamento de dados para gráficos com debug
-  const chartData = useMemo(() => {
-    console.log('🔄 Processando dados para gráficos...');
+  // 2. Tentar campos estruturados
+  switch (fieldName) {
+    case 'Exportador':
+      return tracking.transport?.exporter;
+    case 'CIA DE TRANSPORTE':
+      return tracking.transport?.company;
+    case 'ETD':
+      return tracking.schedule?.etd;
+  }
 
-    // Gráfico 1: Exportadores
-    const exporterCounts = {} as Record<string, number>;
+  return null;
+};
+
+const extractArrayFromAllSources = (tracking: Tracking, fieldName: string): string[] => {
+  // 1. Tentar arrays estruturados primeiro
+  switch (fieldName) {
+    case 'PRODUTO':
+      if (tracking.transport?.products && tracking.transport.products.length > 0) {
+        return tracking.transport.products.filter(p => p && p.trim() !== '');
+      }
+      break;
+    case 'Órgãos Anuentes':
+      if (tracking.regulatory?.orgaosAnuentes && tracking.regulatory.orgaosAnuentes.length > 0) {
+        return tracking.regulatory.orgaosAnuentes.filter(o => o && o.trim() !== '');
+      }
+      break;
+  }
+
+  // 2. Tentar extrair de customFields como string
+  const stringValue = extractDataFromAllSources(tracking, fieldName);
+  if (stringValue) {
+    return stringValue
+      .split(/[,;|\/]/)  // Split por múltiplos separadores
+      .map(item => item.trim())
+      .filter(item => item !== '' && item.length > 1); // Filtrar strings muito curtas
+  }
+
+  return [];
+};
+
+const parseETDDate = (etdString: string | null): { year: number; month: number } | null => {
+  if (!etdString) return null;
+  
+  try {
+    // Limpar string de espaços e caracteres especiais
+    const cleanEtd = etdString.trim().replace(/[^\d\/\-\.]/g, '');
+    
+    // Múltiplos formatos de data
+    const dateFormats = [
+      /^(\d{4})-(\d{1,2})-(\d{1,2})$/,    // YYYY-MM-DD
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,  // DD/MM/YYYY
+      /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,  // YYYY/MM/DD
+      /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/,  // DD.MM.YYYY
+      /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/   // YYYY.MM.DD
+    ];
+    
+    for (let i = 0; i < dateFormats.length; i++) {
+      const format = dateFormats[i];
+      const match = cleanEtd.match(format);
+      if (match) {
+        let year, month;
+        
+        if (i === 1 || i === 3) { // DD/MM/YYYY ou DD.MM.YYYY
+          year = parseInt(match[3]);
+          month = parseInt(match[2]);
+        } else { // YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
+          year = parseInt(match[1]);
+          month = parseInt(match[2]);
+        }
+        
+        // Validar ano e mês
+        if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12) {
+          return { year, month };
+        }
+      }
+    }
+    
+    // Fallback: tentar parsing direto
+    const date = new Date(etdString);
+    if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2030) {
+      return { year: date.getFullYear(), month: date.getMonth() + 1 };
+    }
+  } catch (error) {
+    // Silent fail
+  }
+  
+  return null;
+};
+
+export function ChartsSection({ trackings }: ChartsSectionProps) {
+  // ✅ Processamento ROBUSTO dos dados para gráficos
+  const chartData = useMemo(() => {
+    if (!trackings || trackings.length === 0) {
+      return {
+        exporters: [],
+        products: [],
+        transportCompanies: [],
+        orgaosAnuentes: [],
+        etdTimeline: []
+      };
+    }
+
+    // ✅ GRÁFICO 1: Exportadores com extração COMPLETA
+    const exporterCounts = new Map<string, number>();
+    let exportersFound = 0;
+    
     trackings.forEach(tracking => {
-      // Tentar múltiplas fontes para exportador
-      const exporter = tracking.transport?.exporter || 
-                      tracking.customFields?.['Exportador'] || 
-                      tracking.customFields?.['EXPORTADOR'] ||
-                      tracking.customFields?.['exportador'];
-      
-      if (exporter && typeof exporter === 'string' && exporter.trim() !== '') {
-        const cleanExporter = exporter.trim();
-        exporterCounts[cleanExporter] = (exporterCounts[cleanExporter] || 0) + 1;
+      const exporter = extractDataFromAllSources(tracking, 'Exportador');
+      if (exporter) {
+        exportersFound++;
+        const current = exporterCounts.get(exporter) || 0;
+        exporterCounts.set(exporter, current + 1);
       }
     });
 
-    console.log('📊 Exportadores encontrados:', Object.keys(exporterCounts).length, exporterCounts);
-
-    const exportersData = Object.entries(exporterCounts)
-      .map(([name, count]) => ({ 
-        name: name.length > 20 ? name.substring(0, 20) + '...' : name, 
+    const exportersData = Array.from(exporterCounts.entries())
+      .map(([name, count]) => ({
+        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
         fullName: name,
-        count, 
-        percentage: trackings.length > 0 ? ((count / trackings.length) * 100).toFixed(1) : '0'
+        count,
+        percentage: ((count / trackings.length) * 100).toFixed(1)
       }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 8); // Top 8 para melhor visualização
+      .slice(0, 10);
 
-    // Gráfico 2: Produtos
-    const productCounts = {} as Record<string, number>;
+    // ✅ GRÁFICO 2: Produtos com extração ROBUSTA
+    const productCounts = new Map<string, number>();
+    let productsFound = 0;
+    
     trackings.forEach(tracking => {
-      // Tentar múltiplas fontes para produtos
-      const products = tracking.transport?.products || [];
-      const customProduct = tracking.customFields?.['PRODUTO'] || 
-                           tracking.customFields?.['Produto'] ||
-                           tracking.customFields?.['produto'];
-      
-      if (customProduct && typeof customProduct === 'string') {
-        // Se produto vem como string, split por vírgulas
-        const productList = customProduct.split(/[,;]/).map(p => p.trim()).filter(Boolean);
-        productList.forEach(product => {
-          if (product) {
-            productCounts[product] = (productCounts[product] || 0) + 1;
-          }
-        });
-      } else if (products.length > 0) {
+      const products = extractArrayFromAllSources(tracking, 'PRODUTO');
+      if (products.length > 0) {
+        productsFound++;
         products.forEach(product => {
-          if (product && typeof product === 'string' && product.trim() !== '') {
-            const cleanProduct = product.trim();
-            productCounts[cleanProduct] = (productCounts[cleanProduct] || 0) + 1;
+          if (product && product.length > 1) { // Filtrar produtos muito curtos
+            const current = productCounts.get(product) || 0;
+            productCounts.set(product, current + 1);
           }
         });
       }
     });
 
-    console.log('📦 Produtos encontrados:', Object.keys(productCounts).length, productCounts);
+    const productsData = Array.from(productCounts.entries())
+      .map(([name, count]) => ({
+        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
+        fullName: name,
+        count,
+        percentage: ((count / trackings.length) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
 
-    const productsData = Object.entries(productCounts)
-      .map(([name, count]) => ({ 
+    // ✅ GRÁFICO 3: Companhias de Transporte
+    const transportCounts = new Map<string, number>();
+    let transportFound = 0;
+    
+    trackings.forEach(tracking => {
+      const company = extractDataFromAllSources(tracking, 'CIA DE TRANSPORTE');
+      if (company) {
+        transportFound++;
+        const current = transportCounts.get(company) || 0;
+        transportCounts.set(company, current + 1);
+      }
+    });
+
+    const transportCompaniesData = Array.from(transportCounts.entries())
+      .map(([name, count]) => ({
+        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
+        fullName: name,
+        count,
+        percentage: ((count / trackings.length) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // ✅ GRÁFICO 4: Órgãos Anuentes com EXTRAÇÃO MELHORADA
+    const orgaosCounts = new Map<string, number>();
+    let orgaosFound = 0;
+    
+    trackings.forEach(tracking => {
+      const orgaos = extractArrayFromAllSources(tracking, 'Órgãos Anuentes');
+      if (orgaos.length > 0) {
+        orgaosFound++;
+        orgaos.forEach(orgao => {
+          if (orgao && orgao.length > 2) { // Filtrar órgãos muito curtos
+            const current = orgaosCounts.get(orgao) || 0;
+            orgaosCounts.set(orgao, current + 1);
+          }
+        });
+      }
+    });
+
+    const orgaosAnuentesData = Array.from(orgaosCounts.entries())
+      .map(([name, value]) => ({
         name: name.length > 20 ? name.substring(0, 20) + '...' : name,
         fullName: name,
-        count, 
-        percentage: trackings.length > 0 ? ((count / trackings.length) * 100).toFixed(1) : '0'
+        value,
+        percentage: ((value / trackings.length) * 100).toFixed(1)
       }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8); // Top 8
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
 
-    // Gráfico 3: Companhias de Transporte
-    const transportCounts = {} as Record<string, number>;
+    // ✅ GRÁFICO 5: Timeline ETD MELHORADA
+    const monthCounts = new Map<string, number>();
+    let etdFound = 0;
+    
     trackings.forEach(tracking => {
-      const company = tracking.transport?.company || 
-                     tracking.customFields?.['CIA DE TRANSPORTE'] ||
-                     tracking.customFields?.['Cia de Transporte'] ||
-                     tracking.customFields?.['cia_de_transporte'];
-      
-      if (company && typeof company === 'string' && company.trim() !== '') {
-        const cleanCompany = company.trim();
-        transportCounts[cleanCompany] = (transportCounts[cleanCompany] || 0) + 1;
-      }
-    });
-
-    console.log('🚛 Companhias de transporte encontradas:', Object.keys(transportCounts).length, transportCounts);
-
-    const transportData = Object.entries(transportCounts)
-      .map(([name, count]) => ({ 
-        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
-        fullName: name,
-        count, 
-        percentage: trackings.length > 0 ? ((count / trackings.length) * 100).toFixed(1) : '0'
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8); // Top 8
-
-    // Gráfico 4: Órgãos Anuentes  
-    const orgaosCounts = {} as Record<string, number>;
-    trackings.forEach(tracking => {
-      const orgaos = tracking.regulatory?.orgaosAnuentes || [];
-      const customOrgaos = tracking.customFields?.['Órgãos Anuentes'] ||
-                          tracking.customFields?.['ÓRGÃOS ANUENTES'] ||
-                          tracking.customFields?.['orgaos_anuentes'];
-      
-      if (customOrgaos && typeof customOrgaos === 'string') {
-        const orgaosList = customOrgaos.split(/[,;]/).map(o => o.trim()).filter(Boolean);
-        orgaosList.forEach(orgao => {
-          if (orgao) {
-            orgaosCounts[orgao] = (orgaosCounts[orgao] || 0) + 1;
-          }
-        });
-      } else if (orgaos.length > 0) {
-        orgaos.forEach(orgao => {
-          if (orgao && typeof orgao === 'string' && orgao.trim() !== '') {
-            const cleanOrgao = orgao.trim();
-            orgaosCounts[cleanOrgao] = (orgaosCounts[cleanOrgao] || 0) + 1;
-          }
-        });
-      }
-    });
-
-    console.log('🏛️ Órgãos anuentes encontrados:', Object.keys(orgaosCounts).length, orgaosCounts);
-
-    const orgaosData = Object.entries(orgaosCounts)
-      .map(([name, value]) => ({ 
-        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
-        fullName: name,
-        value, 
-        percentage: trackings.length > 0 ? ((value / trackings.length) * 100).toFixed(1) : '0'
-      }))
-      .sort((a, b) => b.value - a.value);
-
-    // Gráfico 5: ETD por mês
-    const etdCounts = {} as Record<string, number>;
-    trackings.forEach(tracking => {
-      const etd = tracking.schedule?.etd || tracking.customFields?.['ETD'];
-      
-      if (etd && typeof etd === 'string') {
-        try {
-          // Tentar diferentes formatos de data
-          let date: Date;
-          
-          if (etd.includes('-')) {
-            // Formato ISO: 2025-01-15 ou 2025-01-15T00:00:00Z
-            date = new Date(etd);
-          } else if (etd.includes('/')) {
-            // Formato brasileiro: 15/01/2025
-            const parts = etd.split('/');
-            if (parts.length === 3) {
-              date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-            } else {
-              date = new Date(etd);
-            }
-          } else {
-            date = new Date(etd);
-          }
-          
-          if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2030) {
-            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            etdCounts[monthKey] = (etdCounts[monthKey] || 0) + 1;
-          }
-        } catch (e) {
-          console.warn('Data ETD inválida:', etd, e);
+      const etdString = extractDataFromAllSources(tracking, 'ETD');
+      if (etdString) {
+        const parsedDate = parseETDDate(etdString);
+        if (parsedDate) {
+          etdFound++;
+          const monthKey = `${parsedDate.year}-${parsedDate.month.toString().padStart(2, '0')}`;
+          const current = monthCounts.get(monthKey) || 0;
+          monthCounts.set(monthKey, current + 1);
         }
       }
     });
 
-    console.log('📅 ETDs por mês encontrados:', Object.keys(etdCounts).length, etdCounts);
+    const etdTimelineData = Array.from(monthCounts.entries())
+      .map(([monthKey, operacoes]) => {
+        const [year, month] = monthKey.split('-');
+        const monthNames = [
+          'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+          'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
+        ];
+        return {
+          month: monthKey,
+          monthLabel: `${monthNames[parseInt(month) - 1]}/${year}`,
+          operacoes
+        };
+      })
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-12);
 
-    const etdTimelineData = Object.entries(etdCounts)
-      .map(([month, operacoes]) => ({ 
-        month, 
-        operacoes,
-        monthLabel: new Date(month + '-01').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
-      }))
-      .sort((a, b) => a.month.localeCompare(b.month));
+    // ✅ Debug info para desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📊 Charts Data Debug:', {
+        total: trackings.length,
+        exportersFound,
+        productsFound,
+        transportFound,
+        orgaosFound,
+        etdFound,
+        exportersData: exportersData.length,
+        productsData: productsData.length,
+        transportData: transportCompaniesData.length,
+        orgaosData: orgaosAnuentesData.length,
+        etdData: etdTimelineData.length
+      });
+    }
 
-    const result = {
+    return {
       exporters: exportersData,
       products: productsData,
-      transportCompanies: transportData,
-      orgaosAnuentes: orgaosData,
+      transportCompanies: transportCompaniesData,
+      orgaosAnuentes: orgaosAnuentesData,
       etdTimeline: etdTimelineData
     };
-
-    console.log('📊 Resultado final dos gráficos:');
-    console.log('  - Exporters:', result.exporters.length, 'items');
-    console.log('  - Products:', result.products.length, 'items');
-    console.log('  - Transport:', result.transportCompanies.length, 'items');
-    console.log('  - Órgãos:', result.orgaosAnuentes.length, 'items');
-    console.log('  - Timeline:', result.etdTimeline.length, 'items');
-
-    return result;
   }, [trackings]);
 
-  // Se não há dados, mostrar mensagem
-  if (trackings.length === 0) {
+  // ✅ Validação de dados sem logs em produção
+  const hasData = trackings && trackings.length > 0;
+  const hasChartsData = Object.values(chartData).some(data => data.length > 0);
+
+  if (!hasData) {
     return (
-      <div className="space-y-6">
-        <h2 className="text-xl font-bold text-gray-900">Análise de Dados</h2>
-        <div className="bg-gray-50 border rounded-lg p-8 text-center">
-          <p className="text-gray-600">Não há dados suficientes para gerar os gráficos.</p>
-          <p className="text-sm text-gray-500 mt-2">Verifique os filtros aplicados ou aguarde o carregamento dos dados.</p>
+      <div className="bg-white border rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Análise de Dados</h3>
+        <div className="text-center py-8">
+          <p className="text-gray-500">Nenhum dado disponível para análise</p>
+          <p className="text-sm text-gray-400 mt-2">Verifique a conexão com o Asana</p>
         </div>
       </div>
     );
@@ -282,23 +357,57 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Análise de Dados</h2>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Status dos dados MELHORADO */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-blue-900">Status da Extração de Dados</h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-2 text-sm">
+              <div className="text-blue-700">
+                <span className="font-medium">Exportadores:</span> {chartData.exporters.length > 0 ? '✅' : '❌'}
+              </div>
+              <div className="text-blue-700">
+                <span className="font-medium">Produtos:</span> {chartData.products.length > 0 ? '✅' : '❌'}
+              </div>
+              <div className="text-blue-700">
+                <span className="font-medium">Transportes:</span> {chartData.transportCompanies.length > 0 ? '✅' : '❌'}
+              </div>
+              <div className="text-blue-700">
+                <span className="font-medium">Órgãos:</span> {chartData.orgaosAnuentes.length > 0 ? '✅' : '❌'}
+              </div>
+              <div className="text-blue-700">
+                <span className="font-medium">ETD:</span> {chartData.etdTimeline.length > 0 ? '✅' : '❌'}
+              </div>
+            </div>
+          </div>
+          <div className="text-blue-600 text-2xl font-bold">{trackings.length}</div>
+        </div>
+      </div>
+
+      {/* Grid de gráficos otimizado */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Gráfico 1: Exportadores */}
         <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Exportadores</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Top Exportadores ({chartData.exporters.length})
+          </h3>
           {chartData.exporters.length > 0 ? (
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData.exporters}
                   layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={75} fontSize={12} />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    width={95} 
+                    fontSize={11}
+                    tick={{ fontSize: 11 }}
+                  />
                   <Tooltip 
                     formatter={(value: any, name: string, props: any) => [
                       `${value} operações (${props.payload.percentage}%)`,
@@ -312,25 +421,36 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
             </div>
           ) : (
             <div className="h-80 flex items-center justify-center text-gray-500">
-              <p>Nenhum exportador encontrado nos dados</p>
+              <div className="text-center">
+                <p>Campo 'Exportador' não encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
+              </div>
             </div>
           )}
         </div>
 
         {/* Gráfico 2: Produtos */}
         <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Produtos</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Top Produtos ({chartData.products.length})
+          </h3>
           {chartData.products.length > 0 ? (
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData.products}
                   layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={75} fontSize={12} />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    width={95} 
+                    fontSize={11}
+                    tick={{ fontSize: 11 }}
+                  />
                   <Tooltip 
                     formatter={(value: any, name: string, props: any) => [
                       `${value} operações (${props.payload.percentage}%)`,
@@ -344,25 +464,36 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
             </div>
           ) : (
             <div className="h-80 flex items-center justify-center text-gray-500">
-              <p>Nenhum produto encontrado nos dados</p>
+              <div className="text-center">
+                <p>Campo 'PRODUTO' não encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
+              </div>
             </div>
           )}
         </div>
 
         {/* Gráfico 3: Companhias de Transporte */}
         <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Companhias de Transporte</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Companhias de Transporte ({chartData.transportCompanies.length})
+          </h3>
           {chartData.transportCompanies.length > 0 ? (
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData.transportCompanies}
                   layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
-                  <YAxis dataKey="name" type="category" width={75} fontSize={12} />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    width={95} 
+                    fontSize={11}
+                    tick={{ fontSize: 11 }}
+                  />
                   <Tooltip 
                     formatter={(value: any, name: string, props: any) => [
                       `${value} operações (${props.payload.percentage}%)`,
@@ -376,14 +507,19 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
             </div>
           ) : (
             <div className="h-80 flex items-center justify-center text-gray-500">
-              <p>Nenhuma companhia de transporte encontrada</p>
+              <div className="text-center">
+                <p>Campo 'CIA DE TRANSPORTE' não encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
+              </div>
             </div>
           )}
         </div>
 
         {/* Gráfico 4: Órgãos Anuentes */}
         <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Órgãos Anuentes</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Órgãos Anuentes ({chartData.orgaosAnuentes.length})
+          </h3>
           {chartData.orgaosAnuentes.length > 0 ? (
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -394,12 +530,12 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
                     cy="50%"
                     labelLine={false}
                     label={({ name, percentage }) => `${name}: ${percentage}%`}
-                    outerRadius={80}
+                    outerRadius={100}
                     fill="#8884d8"
                     dataKey="value"
                   >
                     {chartData.orgaosAnuentes.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip 
@@ -414,15 +550,20 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
             </div>
           ) : (
             <div className="h-80 flex items-center justify-center text-gray-500">
-              <p>Nenhum órgão anuente encontrado</p>
+              <div className="text-center">
+                <p>Campo 'Órgãos Anuentes' não encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Gráfico 5: ETD Timeline (linha completa) */}
+      {/* Gráfico 5: Timeline ETD (linha completa) */}
       <div className="bg-white border rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Cronograma ETD por Mês</h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Cronograma ETD por Mês ({chartData.etdTimeline.length} meses)
+        </h3>
         {chartData.etdTimeline.length > 0 ? (
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
@@ -456,7 +597,10 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
           </div>
         ) : (
           <div className="h-80 flex items-center justify-center text-gray-500">
-            <p>Nenhuma data ETD encontrada nos dados</p>
+            <div className="text-center">
+              <p>Campo 'ETD' não encontrado</p>
+              <p className="text-sm text-gray-400 mt-1">Verifique datas ETD no Asana</p>
+            </div>
           </div>
         )}
       </div>

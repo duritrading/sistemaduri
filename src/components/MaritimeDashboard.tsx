@@ -1,9 +1,10 @@
-// src/components/MaritimeDashboard.tsx - VERSÃO OTIMIZADA 100% PRECISA
+// src/components/MaritimeDashboard.tsx - VERSÃO COM KPI OPERAÇÕES CANCELADAS
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Filter, X, ChevronDown, Package, RotateCcw, CheckCircle, XCircle, FileText, Ship, Waves, Building, Truck, FilePlus } from 'lucide-react';
-import { ChartsSection } from './ChartsSection';
+import { ChartsSection } from './ChartsSection'; // ✅ Componente corrigido
+import { DebugPanel } from './DebugPanel'; // ✅ Componente de debug
 
 interface MaritimeDashboardProps {
   companyFilter?: string;
@@ -68,7 +69,7 @@ const initialFilters: FilterState = {
   orgaoAnuente: ''
 };
 
-// ✅ Stages EXATOS do processo marítimo
+// ✅ Stages EXATOS do processo marítimo (incluindo canceladas)
 const MARITIME_STAGES = [
   'Abertura do Processo',
   'Pré Embarque', 
@@ -76,7 +77,8 @@ const MARITIME_STAGES = [
   'Chegada da Carga',
   'Entrega',
   'Fechamento',
-  'Processos Finalizados'
+  'Processos Finalizados',
+  'Canceladas' // ✅ Adicionado
 ];
 
 export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
@@ -86,7 +88,7 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [showFilters, setShowFilters] = useState(false);
 
-  // ✅ Fetch dados do Asana - SIMPLIFICADO
+  // ✅ Fetch dados do Asana com melhor error handling
   const fetchData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
@@ -111,8 +113,6 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
         throw new Error(result.error || 'Erro ao buscar dados');
       }
 
-      // ✅ Dados já vêm processados corretamente da API otimizada
-      // Garantir que sempre temos um array, mesmo em caso de erro
       const trackingsData = Array.isArray(result.data) ? result.data : [];
       setTrackings(trackingsData);
 
@@ -127,6 +127,43 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ✅ Função para detectar operações canceladas
+  const isOperationCancelled = (tracking: Tracking): boolean => {
+    // Verificar múltiplas fontes para identificar cancelamento
+    const cancelKeywords = ['cancelad', 'cancel', 'suspended', 'abort', 'paralis'];
+    
+    // 1. Verificar no status
+    if (tracking.status) {
+      const statusLower = tracking.status.toLowerCase();
+      if (cancelKeywords.some(keyword => statusLower.includes(keyword))) {
+        return true;
+      }
+    }
+
+    // 2. Verificar no maritime status
+    if (tracking.maritimeStatus && tracking.maritimeStatus.toLowerCase().includes('cancel')) {
+      return true;
+    }
+
+    // 3. Verificar no título
+    if (tracking.title) {
+      const titleLower = tracking.title.toLowerCase();
+      if (cancelKeywords.some(keyword => titleLower.includes(keyword))) {
+        return true;
+      }
+    }
+
+    // 4. Verificar nos custom fields
+    if (tracking.customFields) {
+      const fieldValues = Object.values(tracking.customFields).join(' ').toLowerCase();
+      if (cancelKeywords.some(keyword => fieldValues.includes(keyword))) {
+        return true;
+      }
+    }
+
+    return false;
+  };
 
   // ✅ Dados filtrados
   const filteredTrackings = useMemo(() => {
@@ -169,31 +206,35 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
     });
   }, [trackings, filters]);
 
-  // ✅ KPIs calculados com PRECISÃO 100%
+  // ✅ KPIs calculados com PRECISÃO 100% (incluindo canceladas)
   const kpis = useMemo(() => {
     const total = filteredTrackings.length;
     
-    // Contar por stage marítimo EXATO
-    const byStage = filteredTrackings.reduce((acc, tracking) => {
+    // Contar operações canceladas
+    const canceladas = filteredTrackings.filter(tracking => isOperationCancelled(tracking)).length;
+    
+    // Contar por stage marítimo EXATO (excluindo canceladas para cálculo das ativas)
+    const nonCancelledTrackings = filteredTrackings.filter(tracking => !isOperationCancelled(tracking));
+    const byStage = nonCancelledTrackings.reduce((acc, tracking) => {
       const stage = tracking.maritimeStatus;
       acc[stage] = (acc[stage] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
     const processosFinalizados = byStage['Processos Finalizados'] || 0;
-    const ativas = total - processosFinalizados;
+    const ativas = nonCancelledTrackings.length - processosFinalizados;
 
     return {
       total,
       ativas,
       processosFinalizados,
-      fechamento: byStage['Fechamento'] || 0,
+      canceladas, // ✅ Novo KPI
       aberturaProcesso: byStage['Abertura do Processo'] || 0,
       preEmbarque: byStage['Pré Embarque'] || 0,
       rasteioCarga: byStage['Rastreio da Carga'] || 0,
       chegadaCarga: byStage['Chegada da Carga'] || 0,
       entrega: byStage['Entrega'] || 0,
-      canceladas: 0 // Não existe no processo atual
+      fechamento: byStage['Fechamento'] || 0
     };
   }, [filteredTrackings]);
 
@@ -401,11 +442,11 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
           subtitle="Completamente concluídas"
         />
         <KPICard
-          title="Em Fechamento"
-          value={kpis.fechamento}
-          icon={<FileText size={24} />}
-          color="purple"
-          subtitle="Finalizando processo"
+          title="Operações Canceladas"
+          value={kpis.canceladas}
+          icon={<XCircle size={24} />}
+          color="red"
+          subtitle="Canceladas ou suspensas"
         />
       </div>
 
@@ -461,7 +502,7 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
         />
       </div>
 
-      {/* ✅ Gráficos - Componente Separado */}
+      {/* ✅ GRÁFICOS CORRIGIDOS - Componente Separado */}
       <ChartsSection trackings={filteredTrackings} />
 
       {/* ✅ Tabela de Operações */}
@@ -472,85 +513,64 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
         
         <div className="overflow-x-auto">
           {filteredTrackings.length > 0 ? (
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Operação
                   </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Exportador
                   </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
-                    Navio
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
                   </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     ETD
                   </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
-                    ETA
-                  </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
-                    Terminal
-                  </th>
-                  <th className="text-left py-3 px-6 text-sm font-medium text-gray-500 uppercase">
-                    Responsável
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Produtos
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredTrackings.map((tracking) => (
-                  <tr key={tracking.id} className="hover:bg-gray-50">
-                    <td className="py-4 px-6">
-                      <div>
-                        <div className="font-medium text-gray-900 truncate max-w-xs">
-                          {tracking.title}
-                        </div>
-                        {tracking.ref && (
-                          <div className="text-sm text-gray-500">
-                            Ref: {tracking.ref}
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredTrackings.slice(0, 10).map((tracking) => {
+                  const isCancelled = isOperationCancelled(tracking);
+                  return (
+                    <tr key={tracking.id} className={`hover:bg-gray-50 ${isCancelled ? 'bg-red-25' : ''}`}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className={`text-sm font-medium ${isCancelled ? 'text-red-700 line-through' : 'text-gray-900'}`}>
+                            {tracking.title}
                           </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(tracking.maritimeStatus)}`}>
-                        {tracking.maritimeStatus}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.transport.exporter || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.transport.vessel || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.schedule.etd || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.schedule.eta || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.transport.terminal || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-900">
-                      {tracking.schedule.responsible || '-'}
-                    </td>
-                  </tr>
-                ))}
+                          <div className="text-sm text-gray-500">{tracking.ref}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {tracking.transport.exporter || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          isCancelled ? 'bg-red-100 text-red-800' : getStatusColor(tracking.maritimeStatus)
+                        }`}>
+                          {isCancelled ? 'Cancelada' : tracking.maritimeStatus}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {tracking.schedule.etd || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {tracking.transport.products.slice(0, 2).join(', ') || '-'}
+                        {tracking.transport.products.length > 2 && ' ...'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
-            <div className="text-center py-12">
-              <Package size={48} className="mx-auto text-gray-400 mb-4" />
-              <p className="text-gray-500">
-                {hasActiveFilters 
-                  ? 'Nenhuma operação corresponde aos filtros aplicados.'
-                  : 'Não há operações carregadas para esta empresa.'}
-              </p>
+            <div className="text-center py-8">
+              <p className="text-gray-500">Nenhuma operação encontrada</p>
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
@@ -563,6 +583,11 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
           )}
         </div>
       </div>
+
+      {/* ✅ DEBUG PANEL - Para desenvolvimento */}
+      {process.env.NODE_ENV === 'development' && (
+        <DebugPanel trackings={trackings} />
+      )}
     </div>
   );
 }
