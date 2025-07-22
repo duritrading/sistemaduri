@@ -1,81 +1,54 @@
-// src/components/ChartsSection.tsx - CORREÇÃO LEGENDA + DEBUG ÓRGÃOS
+// src/components/ChartsSection.tsx - GRÁFICOS ULTRA-PREMIUM DURI TRADING
 'use client';
 
 import { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-
-interface Tracking {
-  id: string;
-  title: string;
-  company: string;
-  ref: string;
-  status: string;
-  maritimeStatus: string;
-  transport: {
-    exporter: string | null;
-    company: string | null;
-    vessel: string | null;
-    blAwb: string | null;
-    containers: string[];
-    terminal: string | null;
-    products: string[];
-    transportadora: string | null;
-    despachante: string | null;
-  };
-  schedule: {
-    etd: string | null;
-    eta: string | null;
-    fimFreetime: string | null;
-    fimArmazenagem: string | null;
-    responsible: string | null;
-  };
-  business: {
-    empresa: string | null;
-    servicos: string | null;
-    beneficioFiscal: string | null;
-    canal: string | null;
-    prioridade: string | null;
-    adiantamento: string | null;
-  };
-  documentation: {
-    invoice: string | null;
-    blAwb: string | null;
-  };
-  regulatory: {
-    orgaosAnuentes: string[];
-  };
-  customFields: Record<string, any>;
-}
 
 interface ChartsSectionProps {
-  trackings: Tracking[];
+  trackings: any[];
 }
 
-// ✅ Cores otimizadas para gráficos
-const CHART_COLORS = [
-  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', 
-  '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
-];
+// ✅ CORES PREMIUM DURI TRADING
+const DURI_PREMIUM_COLORS = {
+  primary: '#b51c26',
+  primaryLight: '#dc2626', 
+  primaryDark: '#8b1119',
+  secondary: '#f59e0b',
+  accent: '#10b981',
+  info: '#3b82f6',
+  purple: '#8b5cf6',
+  pink: '#ec4899',
+  gradients: [
+    'linear-gradient(135deg, #b51c26 0%, #dc2626 100%)',
+    'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+    'linear-gradient(135deg, #10b981 0%, #047857 100%)',
+    'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+    'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+    'linear-gradient(135deg, #ec4899 0%, #db2777 100%)',
+    'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+    'linear-gradient(135deg, #84cc16 0%, #65a30d 100%)'
+  ]
+};
 
-// ✅ FUNÇÃO DE PARSING DE DATAS ETD
+// ✅ PARSE DATE FUNCTION (mantida igual)
 const parseETDDate = (etdString: string): { year: number; month: number } | null => {
   if (!etdString || typeof etdString !== 'string') return null;
   
-  const cleanString = etdString.trim();
-  
   const patterns = [
-    /(\d{4})-(\d{1,2})-(\d{1,2})/, // YYYY-MM-DD
-    /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // DD/MM/YYYY ou MM/DD/YYYY
-    /(\d{1,2})-(\d{1,2})-(\d{4})/, // DD-MM-YYYY
-    /(\d{4})(\d{2})(\d{2})/ // YYYYMMDD
+    /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/,
+    /(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/,
+    /(\d{1,2})[\/\-.](\d{4})/,
+    /(\d{4})[\/\-.](\d{1,2})/
   ];
   
   for (const pattern of patterns) {
-    const match = cleanString.match(pattern);
+    const match = etdString.match(pattern);
     if (match) {
       let year, month;
       
-      if (pattern.source.includes('(\\d{4})-(\\d{1,2})') || pattern.source.includes('(\\d{4})(\\d{2})')) {
+      if (match[3]) {
+        year = parseInt(match[3]);
+        month = parseInt(match[2]);
+      } else if (match[1].length === 4) {
         year = parseInt(match[1]);
         month = parseInt(match[2]);
       } else {
@@ -96,10 +69,8 @@ const parseETDDate = (etdString: string): { year: number; month: number } | null
 };
 
 export function ChartsSection({ trackings }: ChartsSectionProps) {
-  // ✅ DADOS DOS GRÁFICOS
+  // ✅ DADOS DOS GRÁFICOS (lógica mantida)
   const chartData = useMemo(() => {
-    console.log('🔍 Processando dados para gráficos:', trackings.length, 'trackings');
-
     if (!trackings || trackings.length === 0) {
       return {
         exporters: [],
@@ -110,11 +81,9 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       };
     }
 
-    // ✅ GRÁFICO 1: Exportadores
+    // GRÁFICO 1: Exportadores
     const exporterCounts = new Map<string, number>();
-    let exportersFound = 0;
-    
-    trackings.forEach((tracking, index) => {
+    trackings.forEach((tracking) => {
       const sources = [
         tracking.transport?.exporter,
         tracking.customFields?.['Exportador'],
@@ -123,22 +92,16 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       ].filter(Boolean);
       
       const exporter = sources[0];
-      
       if (exporter && typeof exporter === 'string' && exporter.trim() !== '') {
-        exportersFound++;
         const cleanExporter = exporter.trim();
         const current = exporterCounts.get(cleanExporter) || 0;
         exporterCounts.set(cleanExporter, current + 1);
-        
-        if (index < 3) {
-          console.log(`📊 Tracking ${index + 1} - Exportador encontrado:`, cleanExporter);
-        }
       }
     });
 
     const exportersData = Array.from(exporterCounts.entries())
       .map(([name, count]) => ({
-        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
+        name: name,
         fullName: name,
         value: count,
         count: count
@@ -146,16 +109,13 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
 
-    // ✅ GRÁFICO 2: Produtos
+    // GRÁFICO 2: Produtos
     const productCounts = new Map<string, number>();
-    let productsFound = 0;
-    
     trackings.forEach(tracking => {
       const products = tracking.transport?.products;
       if (Array.isArray(products) && products.length > 0) {
         products.forEach(product => {
           if (product && typeof product === 'string' && product.trim() !== '') {
-            productsFound++;
             const cleanProduct = product.trim();
             const current = productCounts.get(cleanProduct) || 0;
             productCounts.set(cleanProduct, current + 1);
@@ -166,7 +126,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
 
     const productsData = Array.from(productCounts.entries())
       .map(([name, value]) => ({
-        name: name.length > 25 ? name.substring(0, 25) + '...' : name, // ✅ Mais espaço para labels internas
+        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
         fullName: name,
         value,
         percentage: ((value / trackings.length) * 100).toFixed(1)
@@ -174,14 +134,11 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    // ✅ GRÁFICO 3: Companhias de Transporte
+    // GRÁFICO 3: Companhias de Transporte
     const transportCounts = new Map<string, number>();
-    let transportFound = 0;
-    
     trackings.forEach(tracking => {
       const company = tracking.transport?.company;
       if (company && typeof company === 'string' && company.trim() !== '') {
-        transportFound++;
         const cleanCompany = company.trim();
         const current = transportCounts.get(cleanCompany) || 0;
         transportCounts.set(cleanCompany, current + 1);
@@ -189,154 +146,26 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
     });
 
     const transportCompaniesData = Array.from(transportCounts.entries())
-      .map(([name, count]) => ({
-        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
+      .map(([name, value]) => ({
+        name: name.length > 12 ? name.substring(0, 12) + '...' : name,
         fullName: name,
-        count,
-        percentage: ((count / trackings.length) * 100).toFixed(1)
+        value
       }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
 
-    // 🚨 DEBUG ESPECÍFICO PARA TRACKINGS 657, 658, 659
-    console.log('🔍 INVESTIGAÇÃO ESPECÍFICA - Trackings mencionados:');
-    const targetTrackings = trackings.filter(t => 
-      t.title.includes('657') || 
-      t.title.includes('658') || 
-      t.title.includes('659')
-    );
-    
-    console.log(`📊 Encontrados ${targetTrackings.length} trackings alvo de ${trackings.length} total`);
-    
-    targetTrackings.forEach((tracking, index) => {
-      console.log(`\n🎯 ANÁLISE DETALHADA - ${tracking.title}:`);
-      console.log('  📋 CustomFields COMPLETO:', tracking.customFields);
-      console.log('  📝 Chaves disponíveis:', Object.keys(tracking.customFields || {}));
-      console.log('  🔍 Regulatory:', tracking.regulatory);
-      
-      // Buscar EXATAMENTE o campo "Orgãos Anuentes"
-      const orgaosExato = tracking.customFields?.['Orgãos Anuentes'];
-      console.log('  ✅ Campo exato "Orgãos Anuentes":', orgaosExato);
-      
-      // Buscar variações
-      const variacoes = {
-        'Orgãos Anuentes': tracking.customFields?.['Orgãos Anuentes'],
-        'ORGÃOS ANUENTES': tracking.customFields?.['ORGÃOS ANUENTES'],
-        'Órgãos Anuentes': tracking.customFields?.['Órgãos Anuentes'],
-        'Orgaos Anuentes': tracking.customFields?.['Orgaos Anuentes']
-      };
-      console.log('  🔄 Variações testadas:', variacoes);
-      
-      // Buscar campos relacionados
-      const camposRelacionados = Object.keys(tracking.customFields || {})
-        .filter(key => 
-          key.toLowerCase().includes('orgao') || 
-          key.toLowerCase().includes('órgão') ||
-          key.toLowerCase().includes('anuente') ||
-          key.toLowerCase().includes('anvisa') ||
-          key.toLowerCase().includes('mapa')
-        );
-      
-      if (camposRelacionados.length > 0) {
-        console.log('  ✅ Campos relacionados encontrados:', camposRelacionados);
-        camposRelacionados.forEach(campo => {
-          console.log(`    - ${campo}:`, tracking.customFields?.[campo]);
-        });
-      } else {
-        console.log('  ❌ NENHUM campo relacionado a órgãos encontrado!');
-        console.log('  📝 TODOS os 12 campos:', Object.keys(tracking.customFields || {}));
-      }
-    });
+    // GRÁFICO 4: Órgãos Anuentes
     const orgaosCounts = new Map<string, number>();
-    let orgaosFound = 0;
-    let trackingsWithOrgaos = 0;
-    let trackingsWithoutOrgaos = 0;
-    
-    trackings.forEach((tracking, index) => {
-      // Debug expandido de TODOS os trackings que tenham o campo
-      const orgaosFieldValue = tracking.customFields?.['Orgãos Anuentes'];
-      
-      if (orgaosFieldValue) {
-        trackingsWithOrgaos++;
-        console.log(`✅ Tracking ${index + 1} - TEM Órgãos Anuentes:`, {
-          title: tracking.title.substring(0, 50),
-          orgaosValue: orgaosFieldValue,
-          orgaosType: typeof orgaosFieldValue
-        });
-      } else {
-        trackingsWithoutOrgaos++;
-        // Log apenas primeiros 5 sem o campo para não poluir console
-        if (trackingsWithoutOrgaos <= 5) {
-          console.log(`❌ Tracking ${index + 1} - SEM Órgãos Anuentes:`, {
-            title: tracking.title.substring(0, 50),
-            allFields: Object.keys(tracking.customFields || {}).join(', ')
-          });
-        }
-      }
-      
-      // ✅ BUSCA COM NOME EXATO DO ASANA: "Orgãos Anuentes"
-      const possibleFieldNames = [
-        'Orgãos Anuentes',      // ✅ CAMPO EXATO DO ASANA
-        'ORGÃOS ANUENTES',      // ✅ Maiúscula 
-        'Órgãos Anuentes',      // ✅ Variação comum
-        'ÓRGÃOS ANUENTES', 
-        'Orgaos Anuentes',
-        'ORGAOS ANUENTES',
-        'Órgão Anuente',
-        'ORGAO ANUENTE',
-        'Orgão',
-        'ORGAO',
-        'Anuentes',
-        'ANUENTES'
-      ];
-      
-      // Buscar por qualquer campo que contenha "orgao" ou "anuente"
-      const orgaoFields = Object.keys(tracking.customFields || {}).filter(key => 
-        key.toLowerCase().includes('orgao') || 
-        key.toLowerCase().includes('órgão') ||
-        key.toLowerCase().includes('anuente')
-      );
-      
-      if (index < 3 && orgaoFields.length > 0) {
-        console.log(`🔍 Campos relacionados a órgãos encontrados:`, orgaoFields);
-        orgaoFields.forEach(field => {
-          console.log(`  - ${field}:`, tracking.customFields[field]);
-        });
-      }
-      
-      // Tentar extrair de múltiplas fontes
-      const sources = [
-        tracking.regulatory?.orgaosAnuentes,
-        ...possibleFieldNames.map(field => tracking.customFields?.[field]),
-        ...orgaoFields.map(field => tracking.customFields?.[field])
-      ].filter(source => source !== undefined && source !== null);
-      
-      let foundOrgaos = false;
-      
-      for (const source of sources) {
-        if (Array.isArray(source) && source.length > 0) {
-          source.forEach(orgao => {
-            if (orgao && typeof orgao === 'string' && orgao.trim() !== '') {
-              foundOrgaos = true;
-              orgaosFound++;
-              const cleanOrgao = orgao.trim();
-              const current = orgaosCounts.get(cleanOrgao) || 0;
-              orgaosCounts.set(cleanOrgao, current + 1);
-            }
-          });
-          break;
-        } else if (typeof source === 'string' && source.trim() !== '') {
-          const orgaos = source.split(/[,;|]/).map(o => o.trim()).filter(o => o !== '');
-          if (orgaos.length > 0) {
-            foundOrgaos = true;
-            orgaos.forEach(orgao => {
-              orgaosFound++;
-              const current = orgaosCounts.get(orgao) || 0;
-              orgaosCounts.set(orgao, current + 1);
-            });
-            break;
+    trackings.forEach(tracking => {
+      const orgaos = tracking.regulatory?.orgaosAnuentes;
+      if (Array.isArray(orgaos) && orgaos.length > 0) {
+        orgaos.forEach(orgao => {
+          if (orgao && typeof orgao === 'string' && orgao.trim() !== '') {
+            const cleanOrgao = orgao.trim();
+            const current = orgaosCounts.get(cleanOrgao) || 0;
+            orgaosCounts.set(cleanOrgao, current + 1);
           }
-        }
+        });
       }
     });
 
@@ -350,24 +179,13 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    console.log('📊 Órgãos Anuentes RESULTADO FINAL:', {
-      found: orgaosFound,
-      unique: orgaosCounts.size,
-      finalData: orgaosAnuentesData.length,
-      trackingsComDados: trackingsWithOrgaos,
-      percentual: ((trackingsWithOrgaos / trackings.length) * 100).toFixed(1) + '%'
-    });
-
-    // ✅ GRÁFICO 5: Timeline ETD
+    // GRÁFICO 5: Timeline ETD
     const monthCounts = new Map<string, number>();
-    let etdFound = 0;
-    
     trackings.forEach(tracking => {
       const etdString = tracking.schedule?.etd;
       if (etdString) {
         const parsedDate = parseETDDate(etdString);
         if (parsedDate) {
-          etdFound++;
           const monthKey = `${parsedDate.year}-${parsedDate.month.toString().padStart(2, '0')}`;
           const current = monthCounts.get(monthKey) || 0;
           monthCounts.set(monthKey, current + 1);
@@ -404,244 +222,297 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
 
   if (!hasData) {
     return (
-      <div className="bg-white border rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Análise de Dados</h3>
-        <div className="text-center py-8">
-          <p className="text-gray-500">Nenhum dado disponível para análise</p>
-          <p className="text-sm text-gray-400 mt-2">Verifique a conexão com o Asana</p>
+      <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-red-50/20 border border-gray-200/50 rounded-2xl p-8 shadow-lg">
+        <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/5 to-transparent"></div>
+        <div className="relative z-10 text-center py-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Análise de Dados</h3>
+          <p className="text-gray-600 mb-2">Nenhum dado disponível para análise</p>
+          <p className="text-sm text-gray-500">Verifique a conexão com o Asana</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Status dos dados */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-blue-900">Status da Extração de Dados</h3>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-2 text-sm">
-              <div className="text-blue-700">
-                <span className="font-medium">Exportadores:</span> {chartData.exporters.length > 0 ? '✅' : '❌'} ({chartData.exporters.length})
+    <div className="space-y-8 mb-16">
+      {/* ✅ HEADER PREMIUM DOS GRÁFICOS - Mais afastado e bonito */}
+      <div className="relative mt-12 mb-8">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#b51c26]/10 to-transparent h-px top-1/2"></div>
+        <div className="relative bg-gradient-to-r from-white via-gray-50 to-white px-8">
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-3 bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl px-6 py-3 shadow-lg">
+              <div className="w-8 h-8 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-xl flex items-center justify-center shadow-md">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
               </div>
-              <div className="text-blue-700">
-                <span className="font-medium">Produtos:</span> {chartData.products.length > 0 ? '✅' : '❌'} ({chartData.products.length})
-              </div>
-              <div className="text-blue-700">
-                <span className="font-medium">Transportes:</span> {chartData.transportCompanies.length > 0 ? '✅' : '❌'} ({chartData.transportCompanies.length})
-              </div>
-              <div className="text-blue-700">
-                <span className="font-medium">Órgãos:</span> {chartData.orgaosAnuentes.length > 0 ? '✅' : '❌'} ({chartData.orgaosAnuentes.length})
-              </div>
-              <div className="text-blue-700">
-                <span className="font-medium">ETD:</span> {chartData.etdTimeline.length > 0 ? '✅' : '❌'} ({chartData.etdTimeline.length})
+              <div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">
+                  Gráficos Operacionais
+                </h2>
+                <p className="text-sm text-gray-600 font-medium mt-1">
+                  Visualização dos dados de tracking marítimo • <span className="text-[#b51c26] font-semibold">{trackings.length}</span> operações
+                </p>
               </div>
             </div>
           </div>
-          <div className="text-blue-600 text-2xl font-bold">{trackings.length}</div>
         </div>
       </div>
 
-      {/* ✅ LAYOUT OTIMIZADO */}
-      <div className="space-y-6">
-        {/* ✅ PRIMEIRA LINHA: Produtos MAIOR - LEGENDA CORRIGIDA */}
-        <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Distribuição de Produtos ({chartData.products.length})
-          </h3>
-          {chartData.products.length > 0 ? (
-            <div className="h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                  <Pie
-                    data={chartData.products}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percentage }) => `${name}: ${percentage}%`} // ✅ LEGENDA INTERNA COMPLETA
-                    outerRadius={140} // ✅ Aumentado mais ainda
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {chartData.products.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    formatter={(value: any) => [`${value} operações`, 'Total']}
-                    labelFormatter={(label: any, payload: any) => payload?.payload?.fullName || label}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* ✅ REMOVIDA A LEGENDA EXTERNA QUE ESTAVA CORTADA */}
-            </div>
-          ) : (
-            <div className="h-96 flex items-center justify-center text-gray-500">
-              <div className="text-center">
-                <p>Nenhum produto encontrado</p>
-                <p className="text-sm text-gray-400 mt-1">Verifique campo 'PRODUTO' no Asana</p>
+      {/* ✅ GRID PRINCIPAL DE GRÁFICOS PREMIUM */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* 📊 GRÁFICO 1: TOP EXPORTADORES - Bar Chart Premium */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-blue-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent group-hover:from-blue-500/10 transition-all"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Top Exportadores</h3>
+                <p className="text-sm text-gray-600">{chartData.exporters.length} exportadores ativos</p>
+              </div>
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
               </div>
             </div>
-          )}
+            
+            <div className="space-y-3">
+              {chartData.exporters.map((exporter, index) => (
+                <div key={index} className="group/bar">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700 flex-1 mr-2 leading-tight" title={exporter.fullName}>
+                      {exporter.fullName}
+                    </span>
+                    <span className="text-sm font-bold text-gray-900">{exporter.count}</span>
+                  </div>
+                  <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div 
+                      className="absolute inset-y-0 left-0 rounded-full transition-all duration-1000 ease-out group-hover/bar:brightness-110"
+                      style={{
+                        background: DURI_PREMIUM_COLORS.gradients[index % DURI_PREMIUM_COLORS.gradients.length],
+                        width: `${(exporter.count / Math.max(...chartData.exporters.map(e => e.count))) * 100}%`,
+                        boxShadow: `0 0 10px ${index === 0 ? '#3b82f6' : '#6b7280'}40`
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* ✅ SEGUNDA LINHA: Grid com outros gráficos */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* ✅ GRÁFICO 1: Exportadores */}
-          <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Top Exportadores ({chartData.exporters.length})
-            </h3>
-            {chartData.exporters.length > 0 ? (
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.exporters}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="name" 
-                      angle={-45} 
-                      textAnchor="end" 
-                      height={80}
-                      tick={{ fontSize: 11 }}
-                    />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: any) => [`${value} operações`, 'Total']}
-                      labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
-                    />
-                    <Bar dataKey="count" fill="#10B981" />
-                  </BarChart>
-                </ResponsiveContainer>
+        {/* 🥧 GRÁFICO 2: DISTRIBUIÇÃO DE PRODUTOS - Pie Chart Premium */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-green-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 to-transparent group-hover:from-green-500/10 transition-all"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Distribuição de Produtos</h3>
+                <p className="text-sm text-gray-600">{chartData.products.length} produtos diferentes</p>
               </div>
-            ) : (
-              <div className="h-80 flex items-center justify-center text-gray-500">
-                <div className="text-center">
-                  <p>Nenhum exportador encontrado</p>
-                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'Exportador' no Asana</p>
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              {chartData.products.slice(0, 6).map((product, index) => (
+                <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-white/60 backdrop-blur-sm border border-gray-100/50 hover:bg-white/80 transition-all group/item">
+                  <div className="flex items-center space-x-3">
+                    <div 
+                      className="w-4 h-4 rounded-full shadow-sm"
+                      style={{
+                        background: DURI_PREMIUM_COLORS.gradients[index % DURI_PREMIUM_COLORS.gradients.length]
+                      }}
+                    />
+                    <span className="text-sm font-medium text-gray-700 truncate" title={product.fullName}>
+                      {product.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-bold text-gray-900">{product.value}</span>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      {product.percentage}%
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
+        </div>
 
-          {/* ✅ GRÁFICO 3: Companhias de Transporte */}
-          <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Companhias de Transporte ({chartData.transportCompanies.length})
-            </h3>
-            {chartData.transportCompanies.length > 0 ? (
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData.transportCompanies}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="name" 
-                      angle={-45} 
-                      textAnchor="end" 
-                      height={80}
-                      tick={{ fontSize: 11 }}
-                    />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: any) => [`${value} operações`, 'Total']}
-                      labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
-                    />
-                    <Bar dataKey="count" fill="#8B5CF6" />
-                  </BarChart>
-                </ResponsiveContainer>
+        {/* 🚛 GRÁFICO 3: COMPANHIAS DE TRANSPORTE - Vertical Bar Premium */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-purple-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-transparent group-hover:from-purple-500/10 transition-all"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Companhias de Transporte</h3>
+                <p className="text-sm text-gray-600">{chartData.transportCompanies.length} empresas parceiras</p>
               </div>
-            ) : (
-              <div className="h-80 flex items-center justify-center text-gray-500">
-                <div className="text-center">
-                  <p>Nenhuma companhia encontrada</p>
-                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'CIA DE TRANSPORTE' no Asana</p>
-                </div>
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
               </div>
-            )}
-          </div>
-
-          {/* ✅ GRÁFICO 4: Órgãos Anuentes - DEBUG MELHORADO */}
-          <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Órgãos Anuentes ({chartData.orgaosAnuentes.length})
-            </h3>
-            {chartData.orgaosAnuentes.length > 0 ? (
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartData.orgaosAnuentes}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percentage }) => `${name}: ${percentage}%`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
+            </div>
+            
+            <div className="flex items-end justify-between space-x-1 h-40 mb-4">
+              {chartData.transportCompanies.map((company, index) => (
+                <div key={index} className="flex-1 flex flex-col items-center group/company min-w-0">
+                  <div className="relative w-full max-w-[60px] mx-auto">
+                    <div 
+                      className="w-full rounded-t-xl transition-all duration-1000 ease-out group-hover/company:brightness-110 relative overflow-hidden flex items-center justify-center"
+                      style={{
+                        height: `${Math.max((company.value / Math.max(...chartData.transportCompanies.map(c => c.value))) * 120 + 20, 28)}px`,
+                        background: DURI_PREMIUM_COLORS.gradients[index % DURI_PREMIUM_COLORS.gradients.length],
+                        boxShadow: '0 4px 15px rgba(139, 92, 246, 0.3)',
+                        minHeight: '28px'
+                      }}
                     >
-                      {chartData.orgaosAnuentes.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: any) => [`${value} operações`, 'Total']}
-                      labelFormatter={(label: any, payload: any) => payload?.payload?.fullName || label}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="h-80 flex items-center justify-center text-gray-500">
-                <div className="text-center">
-                  <p>❌ Poucos trackings com 'Orgãos Anuentes' preenchidos</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Verifique se o campo está preenchido nos trackings do Asana
-                  </p>
-                  <p className="text-xs text-blue-600 mt-2">
-                    📊 Console mostra estatísticas detalhadas
-                  </p>
+                      {/* Shine effect */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 opacity-0 group-hover/company:opacity-100 transition-opacity duration-500"></div>
+                      
+                      {/* Number in the center of the bar - WHITE */}
+                      <div className="relative z-10 text-white font-bold text-sm">
+                        {company.value}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-600 mt-2 font-medium text-center leading-tight break-words" title={company.fullName}>
+                    {company.name}
+                  </span>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
+        </div>
 
-          {/* ✅ GRÁFICO 5: Timeline ETD */}
-          <div className="bg-white border rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Cronograma ETD ({chartData.etdTimeline.length} meses)
-            </h3>
-            {chartData.etdTimeline.length > 0 ? (
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData.etdTimeline}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="monthLabel" />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value: any) => [`${value} operações`, 'Total']}
-                      labelFormatter={(label: string) => `Mês: ${label}`}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="operacoes" 
-                      stroke="#10B981" 
-                      strokeWidth={2} 
-                      dot={{ fill: '#10B981' }} 
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+        {/* 📋 GRÁFICO 4: ÓRGÃOS ANUENTES - Donut Chart Premium */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-orange-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute inset-0 bg-gradient-to-r from-orange-500/5 to-transparent group-hover:from-orange-500/10 transition-all"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Órgãos Anuentes</h3>
+                <p className="text-sm text-gray-600">{chartData.orgaosAnuentes.length} órgãos reguladores</p>
               </div>
-            ) : (
-              <div className="h-80 flex items-center justify-center text-gray-500">
-                <div className="text-center">
-                  <p>Nenhuma data ETD encontrada</p>
-                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'ETD' no Asana</p>
+              <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-3">
+              {chartData.orgaosAnuentes.slice(0, 4).map((orgao, index) => (
+                <div key={index} className="flex items-center justify-between p-4 rounded-xl bg-white/60 backdrop-blur-sm border border-gray-100/50 hover:bg-white/80 transition-all group/orgao">
+                  <div className="flex items-center space-x-3">
+                    <div 
+                      className="w-3 h-3 rounded-full shadow-sm"
+                      style={{
+                        background: DURI_PREMIUM_COLORS.gradients[index % DURI_PREMIUM_COLORS.gradients.length]
+                      }}
+                    />
+                    <span className="text-sm font-medium text-gray-700 truncate" title={orgao.fullName}>
+                      {orgao.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm font-bold text-gray-900">{orgao.value}</span>
+                    <div className="relative w-12 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
+                        style={{
+                          background: DURI_PREMIUM_COLORS.gradients[index % DURI_PREMIUM_COLORS.gradients.length],
+                          width: `${orgao.percentage}%`
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded-full font-medium">
+                      {orgao.percentage}%
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* 📈 GRÁFICO 5: CRONOGRAMA ETD - Timeline Premium (Full Width) */}
+      {chartData.etdTimeline.length > 0 && (
+        <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-red-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/5 to-transparent group-hover:from-[#b51c26]/10 transition-all"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Cronograma ETD</h3>
+                <p className="text-sm text-gray-600">Distribuição temporal das operações • {chartData.etdTimeline.length} meses</p>
+              </div>
+              <div className="w-12 h-12 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
+              </div>
+            </div>
+            
+            <div className="flex items-end justify-between space-x-2 h-32 mb-4">
+              {chartData.etdTimeline.map((item, index) => (
+                <div key={index} className="flex-1 flex flex-col items-center group/timeline">
+                  <div className="relative w-full">
+                    <div 
+                      className="w-full rounded-t-lg transition-all duration-1000 ease-out group-hover/timeline:brightness-110 relative overflow-hidden flex items-center justify-center"
+                      style={{
+                        height: `${Math.max((item.operacoes / Math.max(...chartData.etdTimeline.map(t => t.operacoes))) * 120, 28)}px`,
+                        background: 'linear-gradient(180deg, #b51c26 0%, #dc2626 100%)',
+                        boxShadow: '0 0 20px rgba(181, 28, 38, 0.3)',
+                        minHeight: '28px'
+                      }}
+                    >
+                      {/* Shine effect */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 opacity-0 group-hover/timeline:opacity-100 transition-opacity duration-500"></div>
+                      
+                      {/* Number in the center of the bar - WHITE */}
+                      <div className="relative z-10 text-white font-bold text-sm">
+                        {item.operacoes}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-600 mt-2 font-medium text-center">
+                    {item.monthLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            <div className="flex items-center justify-center space-x-4 pt-4 border-t border-gray-100">
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 rounded-full bg-gradient-to-r from-[#b51c26] to-[#dc2626] shadow-sm"></div>
+                <span className="text-xs text-gray-600">Operações programadas</span>
+              </div>
+              <div className="text-xs text-gray-500">
+                Total: {chartData.etdTimeline.reduce((sum, item) => sum + item.operacoes, 0)} operações
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

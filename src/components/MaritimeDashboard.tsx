@@ -276,7 +276,7 @@ export function MaritimeDashboard({
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {/* ✅ COMPONENTE KPI - Seção de KPIs e Filtros */}
       <KPIDashboard
         trackings={trackings}
@@ -291,19 +291,23 @@ export function MaritimeDashboard({
         onRefreshData={refreshData}
       />
 
-      {/* ✅ COMPONENTE CHARTS - Seção de Gráficos */}
-      <ChartsDashboard
-        filteredTrackings={filteredTrackings}
-        loading={false}
-      />
+      {/* ✅ COMPONENTE CHARTS - Seção de Gráficos (SEM HEADER ANTIGO) */}
+      <div className="pt-8">
+        <ChartsDashboard
+          filteredTrackings={filteredTrackings}
+          loading={false}
+        />
+      </div>
 
-      {/* ✅ COMPONENTE OPERATIONS - Seção de Operações */}
-      <OperationsDashboard
-        filteredTrackings={filteredTrackings}
-        hasActiveFilters={hasActiveFilters}
-        onClearFilters={clearFilters}
-        loading={false}
-      />
+      {/* ✅ COMPONENTE OPERATIONS - Seção de Operações (SEM HEADER ANTIGO) */}
+      <div className="pt-16">
+        <OperationsDashboard
+          filteredTrackings={filteredTrackings}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={clearFilters}
+          loading={false}
+        />
+      </div>
     </div>
   );
 }
