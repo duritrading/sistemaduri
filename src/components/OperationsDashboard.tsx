@@ -153,10 +153,7 @@ const getTrackingData = (tracking: Tracking) => {
     status: tracking.maritimeStatus || 'N/A',
     exportador: tracking.transport?.exporter || tracking.customFields?.['Exportador'] || tracking.customFields?.['EXPORTADOR'] || '-',
     produto: tracking.transport?.products?.join(', ') || tracking.customFields?.['PRODUTO'] || tracking.customFields?.['Produto'] || '-',
-    
-    // ✅ LINHA CORRIGIDA - Removido tracking.company do fallback
     companhia: tracking.transport?.company || tracking.business?.empresa || '-',
-    
     navio: tracking.transport?.vessel || tracking.customFields?.['NAVIO'] || tracking.customFields?.['Navio'] || '-',
     orgaosAnuentes: tracking.regulatory?.orgaosAnuentes?.join(', ') || tracking.customFields?.['Órgãos Anuentes'] || '-',
     eta: formatDate(tracking.schedule?.eta || tracking.customFields?.['ETA']),

@@ -61,17 +61,28 @@ export default function DashboardPage() {
   };
 
   const scrollToSection = (sectionId: 'resumo' | 'graficos' | 'operacoes') => {
-    const refs = { resumo: resumoRef, graficos: graficosRef, operacoes: operacoesRef };
-    const targetRef = refs[sectionId];
+  // Usar getElementById diretamente para ir aos componentes reais
+  const element = document.getElementById(sectionId);
+  
+  if (element) {
+    // Offset personalizado para cada seção
+    const offsetMap = {
+      'resumo': 100,      // KPI vai para o topo
+      'graficos': 50,     // Gráficos vai mais para o conteúdo dos gráficos
+      'operacoes': 100    // Operações vai para o header da tabela
+    };
     
-    if (targetRef?.current) {
-      targetRef.current.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'start'
-      });
-      setActiveSection(sectionId);
-    }
-  };
+    const offset = offsetMap[sectionId];
+    const elementPosition = element.offsetTop - offset;
+    
+    window.scrollTo({
+      top: elementPosition,
+      behavior: 'smooth'
+    });
+    
+    setActiveSection(sectionId);
+  }
+};
 
   const handleLogout = () => {
     clearCurrentCompany();
@@ -157,29 +168,28 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
-
-            {/* Navegação Premium */}
-            <nav className="flex items-center space-x-2">
-              {[
-                { id: 'resumo', label: 'Resumo Operacional' },
-                { id: 'graficos', label: 'Analytics' },
-                { id: 'operacoes', label: 'Operações' }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => scrollToSection(item.id as any)}
-                  className={`
-                    relative px-6 py-3 rounded-xl font-medium text-sm transition-all duration-300
-                    ${activeSection === item.id 
-                      ? 'bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white shadow-xl' 
-                      : 'text-gray-600 hover:text-white hover:bg-gradient-to-r hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
-                    }
-                  `}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
+{/* Navegação Premium */}
+<nav className="flex items-center space-x-2">
+  {[
+    { id: 'resumo', label: 'Resumo Operacional' },
+    { id: 'graficos', label: 'Gráficos Operacionais' },
+    { id: 'operacoes', label: 'Operações Detalhadas' }
+  ].map((item) => (
+    <button
+      key={item.id}
+      onClick={() => scrollToSection(item.id as any)}
+      className={`
+        relative px-6 py-3 rounded-xl font-medium text-sm transition-all duration-300
+        ${activeSection === item.id 
+          ? 'bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white shadow-xl' 
+          : 'text-gray-600 hover:text-white hover:bg-gradient-to-r hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
+        }
+      `}
+    >
+      {item.label}
+    </button>
+  ))}
+</nav>
 
             {/* Status + Logout */}
             <div className="flex items-center space-x-4">
@@ -247,10 +257,7 @@ export default function DashboardPage() {
                 Monitoramento completo das suas operações de trading internacional com métricas em tempo real
               </p>
             </div>
-          </section>
-
-          <section ref={graficosRef} id="graficos" className="scroll-mt-24" />
-          <section ref={operacoesRef} id="operacoes" className="scroll-mt-24" />
+          </section>          
 
           {/* Dashboard Principal usando componente existente */}
           <MaritimeDashboard companyFilter={company?.name} />
