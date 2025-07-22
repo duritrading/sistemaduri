@@ -1,4 +1,4 @@
-// src/app/admin/users/page.tsx - PÁGINA ADMIN PARA GESTÃO DE USUÁRIOS
+// src/app/admin/users/page.tsx - COM SINCRONIZAÇÃO DE EMPRESAS DO ASANA
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -19,7 +19,10 @@ import {
   EyeOff,
   ArrowLeft,
   Copy,
-  Trash2
+  Trash2,
+  RefreshCw,
+  Database,
+  Zap
 } from 'lucide-react';
 
 interface Company {
@@ -41,15 +44,24 @@ interface UserProfile {
   companies?: Company;
 }
 
+interface SyncStatus {
+  companiesInDatabase: number;
+  companiesInAsana: number;
+  needsSync: boolean;
+  companies: Company[];
+}
+
 export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
 
   const [form, setForm] = useState({
     email: '',
@@ -91,7 +103,7 @@ export default function AdminUsersPage() {
       
       const { supabase } = await import('@/lib/supabase');
       
-      // Carregar empresas
+      // Carregar empresas do banco
       const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
         .select('*')
@@ -124,11 +136,69 @@ export default function AdminUsersPage() {
       if (usersError) throw usersError;
       
       setUsers(usersData || []);
+
+      // Verificar status de sincronização
+      await checkSyncStatus();
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO
+  const checkSyncStatus = async () => {
+    try {
+      const response = await fetch('/api/admin/sync-companies');
+      if (response.ok) {
+        const status = await response.json();
+        setSyncStatus(status);
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status de sincronização:', error);
+    }
+  };
+
+  // ✅ SINCRONIZAR EMPRESAS DO ASANA
+  const handleSyncCompanies = async () => {
+    setSyncing(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      console.log('🔄 Iniciando sincronização...');
+      
+      const response = await fetch('/api/admin/sync-companies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erro na sincronização');
+      }
+
+      setSuccess(`✅ ${result.message}
+
+📊 Estatísticas:
+• Total processadas: ${result.stats.totalProcessed}
+• Criadas: ${result.stats.created}
+• Atualizadas: ${result.stats.updated}
+• Erros: ${result.stats.errors}
+
+As empresas do Asana foram sincronizadas com sucesso!`);
+
+      // Recarregar dados
+      await loadData();
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao sincronizar empresas');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -240,30 +310,83 @@ O usuário já pode fazer login no sistema.`);
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Gestão de Usuários</h1>
-                <p className="text-gray-600">Criar e gerenciar usuários do sistema</p>
+                <p className="text-gray-600">
+                  Criar e gerenciar usuários do sistema • {companies.length} empresas disponíveis
+                </p>
               </div>
             </div>
             
-            <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-            >
-              <UserPlus size={20} />
-              <span>Novo Usuário</span>
-            </button>
+            <div className="flex items-center space-x-3">
+              {/* Status de Sincronização */}
+              {syncStatus && (
+                <div className={`px-3 py-2 rounded-lg text-sm font-medium ${
+                  syncStatus.needsSync 
+                    ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                    : 'bg-green-100 text-green-800 border border-green-200'
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    <Database size={16} />
+                    <span>
+                      {syncStatus.companiesInDatabase} de {syncStatus.companiesInAsana} empresas
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Botão de Sincronização */}
+              <button
+                onClick={handleSyncCompanies}
+                disabled={syncing}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center space-x-2 disabled:opacity-50"
+              >
+                {syncing ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Sincronizando...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={16} />
+                    <span>Sincronizar Empresas</span>
+                  </>
+                )}
+              </button>
+              
+              <button
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+              >
+                <UserPlus size={20} />
+                <span>Novo Usuário</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
+        {/* ✅ ALERTA DE SINCRONIZAÇÃO */}
+        {syncStatus?.needsSync && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-3">
+            <Zap size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-amber-800 font-medium">Sincronização Necessária</p>
+              <p className="text-amber-700 text-sm mt-1">
+                Você tem {syncStatus.companiesInAsana} empresas no Asana, mas apenas {syncStatus.companiesInDatabase} no banco. 
+                Clique em "Sincronizar Empresas" para importar todas as empresas do Asana.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ✅ MENSAGENS */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
             <AlertCircle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-red-800 font-medium">Erro</p>
-              <p className="text-red-700 text-sm mt-1 whitespace-pre-line">{error}</p>
+              <pre className="text-red-700 text-sm mt-1 whitespace-pre-line">{error}</pre>
             </div>
           </div>
         )}
@@ -326,7 +449,9 @@ O usuário já pode fazer login no sistema.`);
 
                   {/* Empresa */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Empresa</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Empresa ({companies.length} disponíveis)
+                    </label>
                     <div className="relative">
                       <Building2 size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <select
@@ -411,7 +536,7 @@ O usuário já pode fazer login no sistema.`);
                   {/* Submit */}
                   <button
                     type="submit"
-                    disabled={creating}
+                    disabled={creating || companies.length === 0}
                     className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                   >
                     {creating ? (
@@ -426,6 +551,14 @@ O usuário já pode fazer login no sistema.`);
                       </>
                     )}
                   </button>
+
+                  {companies.length === 0 && (
+                    <div className="text-center p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-amber-800 text-sm">
+                        Nenhuma empresa disponível. Clique em "Sincronizar Empresas" primeiro.
+                      </p>
+                    </div>
+                  )}
                 </form>
               </div>
             </div>
