@@ -1,10 +1,9 @@
-// src/components/MaritimeDashboard.tsx - VERSÃO COM KPI OPERAÇÕES CANCELADAS
+// src/components/MaritimeDashboard.tsx - COM SEÇÕES ORGANIZADAS PARA NAVEGAÇÃO
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Filter, X, ChevronDown, Package, RotateCcw, CheckCircle, XCircle, FileText, Ship, Waves, Building, Truck, FilePlus } from 'lucide-react';
-import { ChartsSection } from './ChartsSection'; // ✅ Componente corrigido
-import { DebugPanel } from './DebugPanel'; // ✅ Componente de debug
+import { Package, RotateCcw, CheckCircle, XCircle, FilePlus, Ship, Waves, Building, Truck, FileText, Filter } from 'lucide-react';
+import { ChartsSection } from './ChartsSection';
 
 interface MaritimeDashboardProps {
   companyFilter?: string;
@@ -69,18 +68,6 @@ const initialFilters: FilterState = {
   orgaoAnuente: ''
 };
 
-// ✅ Stages EXATOS do processo marítimo (incluindo canceladas)
-const MARITIME_STAGES = [
-  'Abertura do Processo',
-  'Pré Embarque', 
-  'Rastreio da Carga',
-  'Chegada da Carga',
-  'Entrega',
-  'Fechamento',
-  'Processos Finalizados',
-  'Canceladas' // ✅ Adicionado
-];
-
 export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
   const [trackings, setTrackings] = useState<Tracking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +75,32 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [showFilters, setShowFilters] = useState(false);
 
-  // ✅ Fetch dados do Asana com melhor error handling
+  // ✅ Função para identificar operações canceladas
+  const isOperationCancelled = (tracking: Tracking): boolean => {
+    const cancelKeywords = ['cancel', 'suspens', 'abort', 'parad'];
+    
+    if (tracking.maritimeStatus && tracking.maritimeStatus.toLowerCase().includes('cancel')) {
+      return true;
+    }
+
+    if (tracking.title) {
+      const titleLower = tracking.title.toLowerCase();
+      if (cancelKeywords.some(keyword => titleLower.includes(keyword))) {
+        return true;
+      }
+    }
+
+    if (tracking.customFields) {
+      const fieldValues = Object.values(tracking.customFields).join(' ').toLowerCase();
+      if (cancelKeywords.some(keyword => fieldValues.includes(keyword))) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  // ✅ Fetch dados do Asana
   const fetchData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
@@ -128,65 +140,24 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
     fetchData();
   }, [fetchData]);
 
-  // ✅ Função para detectar operações canceladas
-  const isOperationCancelled = (tracking: Tracking): boolean => {
-    // Verificar múltiplas fontes para identificar cancelamento
-    const cancelKeywords = ['cancelad', 'cancel', 'suspended', 'abort', 'paralis'];
-    
-    // 1. Verificar no status
-    if (tracking.status) {
-      const statusLower = tracking.status.toLowerCase();
-      if (cancelKeywords.some(keyword => statusLower.includes(keyword))) {
-        return true;
-      }
-    }
-
-    // 2. Verificar no maritime status
-    if (tracking.maritimeStatus && tracking.maritimeStatus.toLowerCase().includes('cancel')) {
-      return true;
-    }
-
-    // 3. Verificar no título
-    if (tracking.title) {
-      const titleLower = tracking.title.toLowerCase();
-      if (cancelKeywords.some(keyword => titleLower.includes(keyword))) {
-        return true;
-      }
-    }
-
-    // 4. Verificar nos custom fields
-    if (tracking.customFields) {
-      const fieldValues = Object.values(tracking.customFields).join(' ').toLowerCase();
-      if (cancelKeywords.some(keyword => fieldValues.includes(keyword))) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
   // ✅ Dados filtrados
   const filteredTrackings = useMemo(() => {
     return trackings.filter(tracking => {
-      // Filtro por referência
       if (filters.reference && 
           !tracking.ref.toLowerCase().includes(filters.reference.toLowerCase()) && 
           !tracking.title.toLowerCase().includes(filters.reference.toLowerCase())) {
         return false;
       }
 
-      // Filtro por status marítimo
       if (filters.status && tracking.maritimeStatus !== filters.status) {
         return false;
       }
 
-      // Filtro por exportador
       if (filters.exporter && tracking.transport.exporter && 
           !tracking.transport.exporter.toLowerCase().includes(filters.exporter.toLowerCase())) {
         return false;
       }
 
-      // Filtro por produto
       if (filters.product) {
         const hasProduct = tracking.transport.products.some(p => 
           p.toLowerCase().includes(filters.product.toLowerCase())
@@ -194,7 +165,6 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
         if (!hasProduct) return false;
       }
 
-      // Filtro por órgão anuente
       if (filters.orgaoAnuente) {
         const hasOrgao = tracking.regulatory.orgaosAnuentes.some(o => 
           o.toLowerCase().includes(filters.orgaoAnuente.toLowerCase())
@@ -206,15 +176,12 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
     });
   }, [trackings, filters]);
 
-  // ✅ KPIs calculados com PRECISÃO 100% (incluindo canceladas)
+  // ✅ KPIs calculados
   const kpis = useMemo(() => {
     const total = filteredTrackings.length;
-    
-    // Contar operações canceladas
     const canceladas = filteredTrackings.filter(tracking => isOperationCancelled(tracking)).length;
-    
-    // Contar por stage marítimo EXATO (excluindo canceladas para cálculo das ativas)
     const nonCancelledTrackings = filteredTrackings.filter(tracking => !isOperationCancelled(tracking));
+    
     const byStage = nonCancelledTrackings.reduce((acc, tracking) => {
       const stage = tracking.maritimeStatus;
       acc[stage] = (acc[stage] || 0) + 1;
@@ -228,7 +195,7 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
       total,
       ativas,
       processosFinalizados,
-      canceladas, // ✅ Novo KPI
+      canceladas,
       aberturaProcesso: byStage['Abertura do Processo'] || 0,
       preEmbarque: byStage['Pré Embarque'] || 0,
       rasteioCarga: byStage['Rastreio da Carga'] || 0,
@@ -289,309 +256,313 @@ export function MaritimeDashboard({ companyFilter }: MaritimeDashboardProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header com ações */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard Marítimo</h1>
-          <p className="text-gray-600">
-            {trackings.length} operações • {filteredTrackings.length} exibidas
-          </p>
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Filter size={16} className="mr-2" />
-            Filtros
-            {hasActiveFilters && (
-              <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
-                {Object.values(filters).filter(Boolean).length}
-              </span>
-            )}
-          </button>
-          
-          <button
-            onClick={() => fetchData(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <RotateCcw size={16} className="mr-2" />
-            Atualizar
-          </button>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      {showFilters && (
-        <div className="bg-white border rounded-lg p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Referência
-              </label>
-              <input
-                type="text"
-                value={filters.reference}
-                onChange={(e) => handleFilterChange('reference', e.target.value)}
-                placeholder="Buscar por referência..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status
-              </label>
-              <select
-                value={filters.status}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Todos os status</option>
-                {filterOptions.statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Exportador
-              </label>
-              <select
-                value={filters.exporter}
-                onChange={(e) => handleFilterChange('exporter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Todos os exportadores</option>
-                {filterOptions.exporters.map(exporter => (
-                  <option key={exporter} value={exporter}>{exporter}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Produto
-              </label>
-              <select
-                value={filters.product}
-                onChange={(e) => handleFilterChange('product', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Todos os produtos</option>
-                {filterOptions.products.map(product => (
-                  <option key={product} value={product}>{product}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Órgão Anuente
-              </label>
-              <select
-                value={filters.orgaoAnuente}
-                onChange={(e) => handleFilterChange('orgaoAnuente', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Todos os órgãos</option>
-                {filterOptions.orgaosAnuentes.map(orgao => (
-                  <option key={orgao} value={orgao}>{orgao}</option>
-                ))}
-              </select>
-            </div>
+    <div className="space-y-8">
+      {/* ✅ SEÇÃO RESUMO: KPI Cards */}
+      <div id="resumo" className="scroll-mt-24">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Resumo Operacional</h2>
+            <p className="text-gray-600">
+              {trackings.length} operações • {filteredTrackings.length} exibidas
+            </p>
           </div>
-
-          {hasActiveFilters && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <button
-                onClick={clearFilters}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Limpar todos os filtros
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* KPI Cards - Primeira Linha */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard
-          title="Total de Operações"
-          value={kpis.total}
-          icon={<Package size={24} />}
-          color="blue"
-          subtitle="Todas as operações"
-        />
-        <KPICard
-          title="Operações Ativas"
-          value={kpis.ativas}
-          icon={<RotateCcw size={24} />}
-          color="orange"
-          subtitle="Em andamento"
-        />
-        <KPICard
-          title="Operações Finalizadas"
-          value={kpis.processosFinalizados}
-          icon={<CheckCircle size={24} />}
-          color="green"
-          subtitle="Completamente concluídas"
-        />
-        <KPICard
-          title="Operações Canceladas"
-          value={kpis.canceladas}
-          icon={<XCircle size={24} />}
-          color="red"
-          subtitle="Canceladas ou suspensas"
-        />
-      </div>
-
-      {/* KPI Cards - Segunda Linha - Stages Específicos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KPICard
-          title="Abertura do Processo"
-          value={kpis.aberturaProcesso}
-          icon={<FilePlus size={20} />}
-          color="yellow"
-          subtitle="Processo iniciado"
-          compact={true}
-        />
-        <KPICard
-          title="Pré Embarque"
-          value={kpis.preEmbarque}
-          icon={<Ship size={20} />}
-          color="orange"
-          subtitle="Preparação"
-          compact={true}
-        />
-        <KPICard
-          title="Rastreio da Carga"
-          value={kpis.rasteioCarga}
-          icon={<Waves size={20} />}
-          color="blue"
-          subtitle="Em trânsito"
-          compact={true}
-        />
-        <KPICard
-          title="Chegada da Carga"
-          value={kpis.chegadaCarga}
-          icon={<Building size={20} />}
-          color="purple"
-          subtitle="No destino"
-          compact={true}
-        />
-        <KPICard
-          title="Entrega"
-          value={kpis.entrega}
-          icon={<Truck size={20} />}
-          color="green"
-          subtitle="Entregando"
-          compact={true}
-        />
-        <KPICard
-          title="Fechamento"
-          value={kpis.fechamento}
-          icon={<FileText size={20} />}
-          color="green"
-          subtitle="Finalizando"
-          compact={true}
-        />
-      </div>
-
-      {/* ✅ GRÁFICOS CORRIGIDOS - Componente Separado */}
-      <ChartsSection trackings={filteredTrackings} />
-
-      {/* ✅ Tabela de Operações */}
-      <div className="bg-white border rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Operações</h3>
-        </div>
-        
-        <div className="overflow-x-auto">
-          {filteredTrackings.length > 0 ? (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Operação
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Exportador
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ETD
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Produtos
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTrackings.slice(0, 10).map((tracking) => {
-                  const isCancelled = isOperationCancelled(tracking);
-                  return (
-                    <tr key={tracking.id} className={`hover:bg-gray-50 ${isCancelled ? 'bg-red-25' : ''}`}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className={`text-sm font-medium ${isCancelled ? 'text-red-700 line-through' : 'text-gray-900'}`}>
-                            {tracking.title}
-                          </div>
-                          <div className="text-sm text-gray-500">{tracking.ref}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {tracking.transport.exporter || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          isCancelled ? 'bg-red-100 text-red-800' : getStatusColor(tracking.maritimeStatus)
-                        }`}>
-                          {isCancelled ? 'Cancelada' : tracking.maritimeStatus}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {tracking.schedule.etd || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {tracking.transport.products.slice(0, 2).join(', ') || '-'}
-                        {tracking.transport.products.length > 2 && ' ...'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-gray-500">Nenhuma operação encontrada</p>
+          
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Filter size={16} className="mr-2" />
+              Filtros
               {hasActiveFilters && (
+                <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                  {Object.values(filters).filter(Boolean).length}
+                </span>
+              )}
+            </button>
+            
+            <button
+              onClick={() => fetchData(true)}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <RotateCcw size={16} className="mr-2" />
+              Atualizar
+            </button>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        {showFilters && (
+          <div className="bg-white border rounded-lg p-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Referência
+                </label>
+                <input
+                  type="text"
+                  value={filters.reference}
+                  onChange={(e) => handleFilterChange('reference', e.target.value)}
+                  placeholder="Buscar por referência..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status Marítimo
+                </label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Todos os status</option>
+                  {filterOptions.statuses.map(status => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Exportador
+                </label>
+                <select
+                  value={filters.exporter}
+                  onChange={(e) => handleFilterChange('exporter', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Todos os exportadores</option>
+                  {filterOptions.exporters.map(exporter => (
+                    <option key={exporter} value={exporter}>{exporter}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Produto
+                </label>
+                <select
+                  value={filters.product}
+                  onChange={(e) => handleFilterChange('product', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Todos os produtos</option>
+                  {filterOptions.products.map(product => (
+                    <option key={product} value={product}>{product}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Órgão Anuente
+                </label>
+                <select
+                  value={filters.orgaoAnuente}
+                  onChange={(e) => handleFilterChange('orgaoAnuente', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Todos os órgãos</option>
+                  {filterOptions.orgaosAnuentes.map(orgao => (
+                    <option key={orgao} value={orgao}>{orgao}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {hasActiveFilters && (
+              <div className="mt-4 pt-4 border-t border-gray-200">
                 <button
                   onClick={clearFilters}
-                  className="mt-3 text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                 >
                   Limpar todos os filtros
                 </button>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* KPI Cards - Primeira Linha */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <KPICard
+            title="Total de Operações"
+            value={kpis.total}
+            icon={<Package size={24} />}
+            color="blue"
+            subtitle="Todas as operações"
+          />
+          <KPICard
+            title="Operações Ativas"
+            value={kpis.ativas}
+            icon={<RotateCcw size={24} />}
+            color="orange"
+            subtitle="Em andamento"
+          />
+          <KPICard
+            title="Operações Finalizadas"
+            value={kpis.processosFinalizados}
+            icon={<CheckCircle size={24} />}
+            color="green"
+            subtitle="Completamente concluídas"
+          />
+          <KPICard
+            title="Operações Canceladas"
+            value={kpis.canceladas}
+            icon={<XCircle size={24} />}
+            color="red"
+            subtitle="Canceladas ou suspensas"
+          />
+        </div>
+
+        {/* KPI Cards - Segunda Linha - Stages Específicos */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <KPICard
+            title="Abertura do Processo"
+            value={kpis.aberturaProcesso}
+            icon={<FilePlus size={20} />}
+            color="yellow"
+            subtitle="Processo iniciado"
+            compact={true}
+          />
+          <KPICard
+            title="Pré Embarque"
+            value={kpis.preEmbarque}
+            icon={<Ship size={20} />}
+            color="orange"
+            subtitle="Preparação"
+            compact={true}
+          />
+          <KPICard
+            title="Rastreio da Carga"
+            value={kpis.rasteioCarga}
+            icon={<Waves size={20} />}
+            color="blue"
+            subtitle="Em trânsito"
+            compact={true}
+          />
+          <KPICard
+            title="Chegada da Carga"
+            value={kpis.chegadaCarga}
+            icon={<Building size={20} />}
+            color="purple"
+            subtitle="No destino"
+            compact={true}
+          />
+          <KPICard
+            title="Entrega"
+            value={kpis.entrega}
+            icon={<Truck size={20} />}
+            color="green"
+            subtitle="Entregando"
+            compact={true}
+          />
+          <KPICard
+            title="Fechamento"
+            value={kpis.fechamento}
+            icon={<FileText size={20} />}
+            color="green"
+            subtitle="Finalizando"
+            compact={true}
+          />
         </div>
       </div>
 
-      {/* ✅ DEBUG PANEL - Para desenvolvimento */}
-      {process.env.NODE_ENV === 'development' && (
-        <DebugPanel trackings={trackings} />
-      )}
+      {/* ✅ SEÇÃO GRÁFICOS */}
+      <div id="graficos" className="scroll-mt-16">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Gráficos Operacionais</h2>
+          <p className="text-gray-600">Visualização dos dados de tracking marítimo</p>
+        </div>
+        
+        <ChartsSection trackings={filteredTrackings} />
+      </div>
+
+      {/* ✅ SEÇÃO OPERAÇÕES: Tabela */}
+      <div id="operacoes" className="scroll-mt-24">
+        <div className="bg-white border rounded-lg">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Operações</h2>
+            <p className="text-gray-600">Lista detalhada de todas as operações de tracking</p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            {filteredTrackings.length > 0 ? (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Operação
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Exportador
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ETD
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Produtos
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredTrackings.map((tracking) => {
+                    const isCancelled = isOperationCancelled(tracking);
+                    return (
+                      <tr key={tracking.id} className={isCancelled ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{tracking.ref}</div>
+                          <div className="text-sm text-gray-500">{tracking.title}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {tracking.transport.exporter || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            isCancelled ? 'bg-red-100 text-red-800' : getStatusColor(tracking.maritimeStatus)
+                          }`}>
+                            {isCancelled ? 'Cancelada' : tracking.maritimeStatus}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {tracking.schedule.etd || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {tracking.transport.products.slice(0, 2).join(', ') || '-'}
+                          {tracking.transport.products.length > 2 && ' ...'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-500">Nenhuma operação encontrada</p>
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="mt-3 text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Limpar todos os filtros
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
+// ✅ Componente KPICard
 interface KPICardProps {
   title: string;
   value: number;

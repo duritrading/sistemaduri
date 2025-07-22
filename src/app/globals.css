@@ -30,3 +30,79 @@
     @apply bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition-colors;
   }
 }
+
+/* Adicione ao final do seu globals.css para smooth scroll otimizado */
+
+/* ✅ Smooth scroll global */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ✅ Scroll offset para navegação com header fixo */
+.scroll-mt-24 {
+  scroll-margin-top: 6rem;
+}
+
+/* ✅ Transições suaves para botões de navegação */
+nav button {
+  transition: all 0.2s ease-in-out;
+}
+
+nav button:hover {
+  transform: translateY(-1px);
+}
+
+nav button.active {
+  box-shadow: 0 4px 12px rgb(181, 28, 38);
+}
+
+/* ✅ Transições para KPI cards */
+.kpi-card {
+  transition: all 0.3s ease-in-out;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* ✅ Animação de loading melhorada */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ✅ Focus states para acessibilidade */
+button:focus,
+input:focus,
+select:focus {
+  outline: 2px solid #3B82F6;
+  outline-offset: 2px;
+}
+
+/* ✅ Responsividade melhorada para header */
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    height: auto;
+    padding: 1rem 0;
+  }
+  
+  .dashboard-header nav {
+    margin-top: 1rem;
+    justify-content: center;
+  }
+  
+  .dashboard-header nav button {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+}
