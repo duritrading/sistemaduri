@@ -231,19 +231,25 @@ export async function GET(request: NextRequest) {
       : processedTrackings;
 
     // ✅ Generate metrics otimizadas
-    const metrics = {
-      totalTasks: allTasks.length,
-      processedTrackings: filteredTrackings.length,
-      companies: [...new Set(processedTrackings.map(t => t.company))].filter(Boolean),
-      statusDistribution: filteredTrackings.reduce((acc, t) => {
-        acc[t.maritimeStatus] = (acc[t.maritimeStatus] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      sectionDistribution: filteredTrackings.reduce((acc, t) => {
-        const section = t.structure?.section || 'Sem seção';
-        acc[section] = (acc[section] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
+   const metrics = {
+  totalTasks: allTasks.length,
+  processedTrackings: filteredTrackings.length,
+  
+  // ✅ COMPANIES CORRIGIDA com type guard adequado
+  companies: Array.from(new Set(
+    processedTrackings
+      .map(t => t.company)
+      .filter((company): company is string => 
+        Boolean(company) && 
+        company !== 'NÃO_IDENTIFICADO' && 
+        company.trim() !== ''
+      )
+  )),
+  
+  statusDistribution: filteredTrackings.reduce((acc, t) => {
+    acc[t.maritimeStatus] = (acc[t.maritimeStatus] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>),
       // ✅ Métricas adicionais para debug dos gráficos
       chartDataQuality: {
         exportersWithData: filteredTrackings.filter(t => t.transport?.exporter).length,
@@ -396,12 +402,15 @@ function extractAsanaSection(task: any, sections: any[]): string {
 }
 
 // ✅ MAP SECTION TO MARITIME STATUS
-function mapSectionToMaritimeStatus(sectionName: string, isCompleted: boolean, customFieldStatus?: string): string {
+function mapSectionToMaritimeStatus(sectionName: string, isCompleted: boolean, asanaStatus?: string): string {
   try {
     if (isCompleted) return 'Processos Finalizados';
     if (!sectionName || typeof sectionName !== 'string') return 'Abertura do Processo';
     
-    const cleanSectionName = sectionName.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+    // ✅ REGEX SIMPLIFICADA - Sem Unicode complexo
+    const cleanSectionName = sectionName
+      .replace(/[^\w\s\-áàâãéèêíìîóòôõúùûç]/gi, '') // Manter apenas letras, números, espaços e acentos
+      .trim();
     
     const sectionMap: Record<string, string> = {
       'Processos Finalizados': 'Processos Finalizados',
