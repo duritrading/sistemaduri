@@ -1,23 +1,17 @@
-// next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    appDir: true,
+  },
   typescript: {
     ignoreBuildErrors: false,
   },
   eslint: {
     ignoreDuringBuilds: false,
   },
-  experimental: {
-    optimizePackageImports: ['framer-motion'],
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production',
   },
-  async rewrites() {
-    return [
-      {
-        source: '/:path*',
-        destination: '/pages/:path*',
-      },
-    ];
-  },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
