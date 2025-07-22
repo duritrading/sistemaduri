@@ -148,12 +148,25 @@ export function OperationsDashboard({
 
   // ✅ Extração de dados seguros
 const getTrackingData = (tracking: Tracking) => {
+  // ✅ OBTER COMPANHIA COM FILTRO ANTI-DURI
+  let companhia = tracking.transport?.company || tracking.business?.empresa || '-';
+  
+  // ✅ FILTRO ANTI-DURI: Se for "Duri" ou variações, forçar para "-"
+  if (companhia && typeof companhia === 'string') {
+    const companhiaUpper = companhia.toUpperCase();
+    if (companhiaUpper === 'DURI' || companhiaUpper === 'WCB' || companhiaUpper === 'AGRIVALE' || 
+        companhiaUpper === 'NATURALLY' || companhiaUpper === 'AMZ' || companhiaUpper === 'EXPOFRUT' || 
+        companhiaUpper === 'UNIVAR') {
+      companhia = '-';
+    }
+  }
+
   return {
     referencia: tracking.ref || tracking.title?.substring(0, 20) || 'N/A',
     status: tracking.maritimeStatus || 'N/A',
     exportador: tracking.transport?.exporter || tracking.customFields?.['Exportador'] || tracking.customFields?.['EXPORTADOR'] || '-',
     produto: tracking.transport?.products?.join(', ') || tracking.customFields?.['PRODUTO'] || tracking.customFields?.['Produto'] || '-',
-    companhia: tracking.transport?.company || tracking.business?.empresa || '-',
+    companhia: companhia,
     navio: tracking.transport?.vessel || tracking.customFields?.['NAVIO'] || tracking.customFields?.['Navio'] || '-',
     orgaosAnuentes: tracking.regulatory?.orgaosAnuentes?.join(', ') || tracking.customFields?.['Órgãos Anuentes'] || '-',
     eta: formatDate(tracking.schedule?.eta || tracking.customFields?.['ETA']),
