@@ -1,11 +1,11 @@
-// src/app/dashboard/page.tsx - DASHBOARD ATUALIZADO COM NOVA AUTENTICAÇÃO
+// src/app/dashboard/page.tsx - COM BOTÃO ADMIN PARA GESTÃO DE USUÁRIOS
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
-import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2 } from 'lucide-react';
+import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, Settings } from 'lucide-react';
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -54,34 +54,33 @@ export default function DashboardPage() {
       }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dashboard');
     } finally {
       setLoading(false);
     }
   };
 
-  const scrollToSection = (sectionId: 'resumo' | 'graficos' | 'operacoes') => {
-    setActiveSection(sectionId);
-    const refs = { resumo: resumoRef, graficos: graficosRef, operacoes: operacoesRef };
-    refs[sectionId]?.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // ✅ HANDLE LOGOUT
   const handleLogout = async () => {
     try {
       await signOut();
     } catch (error) {
-      console.error('Erro ao fazer logout:', error);
+      console.error('Erro no logout:', error);
     }
   };
 
-  // ✅ Loading de autenticação
+  // ✅ VERIFICAR SE É ADMIN
+  const isAdmin = profile?.role === 'admin';
+  const isManager = profile?.role === 'manager' || profile?.role === 'admin';
+
+  // ✅ Loading inicial do auth
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
         <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center mx-auto mb-4">
-              <Sparkles size={32} className="text-white animate-pulse" />
+              <Activity size={32} className="text-white animate-pulse" />
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Carregando Sistema</h3>
             <p className="text-gray-600">Verificando autenticação...</p>
@@ -155,104 +154,88 @@ export default function DashboardPage() {
                 <img 
                   src="/duriLogo.webp" 
                   alt="Duri Trading" 
-                  className="h-16 w-auto drop-shadow-lg hover:scale-105 transition-transform"
-                  onError={(e) => e.currentTarget.style.display = 'none'}
+                  className="h-16 w-auto drop-shadow-lg hover:scale-105 transition-transform duration-200"
                 />
               </div>
               
-              <div className="flex flex-col">
-                <div className="flex items-baseline space-x-3">
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">
-                    Sistema de Tracking
-                  </h1>
-                  <div className="px-3 py-1 bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white text-sm font-medium rounded-full shadow-lg">
-                    {company?.display_name}
+              {/* Company + User Info */}
+              <div className="hidden sm:block">
+                <div className="flex items-center space-x-4">
+                  <div className="bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-4 py-2">
+                    <div className="flex items-center space-x-3">
+                      <Building2 size={16} className="text-[#b51c26]" />
+                      <span className="font-medium text-gray-900">{company?.display_name}</span>
+                    </div>
                   </div>
-                </div>
-                <p className="text-sm text-gray-500 font-medium">
-                  Maritime Operations Dashboard
-                </p>
-              </div>
-            </div>
-
-            {/* Navegação Premium */}
-            <nav className="flex items-center space-x-2">
-              {[
-                { id: 'resumo', label: 'Resumo Operacional' },
-                { id: 'graficos', label: 'Gráficos Operacionais' },
-                { id: 'operacoes', label: 'Operações Detalhadas' }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => scrollToSection(item.id as any)}
-                  className={`
-                    relative px-6 py-3 rounded-xl font-medium text-sm transition-all duration-300
-                    ${activeSection === item.id 
-                      ? 'bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white shadow-xl' 
-                      : 'text-gray-600 hover:text-white hover:bg-gradient-to-r hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
-                    }
-                  `}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
-
-            {/* Status + User Info + Logout */}
-            <div className="flex items-center space-x-4">
-              {/* System Status */}
-              {configStatus && (
-                <div className="flex items-center space-x-3">
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-3 h-3 rounded-full animate-pulse ${
-                      configStatus.tokenConfigured 
-                        ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' 
-                        : 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
-                    }`} />
-                    <div className="flex items-center space-x-1 text-sm">
-                      {configStatus.tokenConfigured ? (
-                        <Wifi size={16} className="text-emerald-600" />
-                      ) : (
-                        <WifiOff size={16} className="text-amber-600" />
-                      )}
-                      <span className={`font-medium ${
-                        configStatus.tokenConfigured ? 'text-emerald-700' : 'text-amber-700'
-                      }`}>
-                        {configStatus.tokenConfigured ? 'Sistema Online' : 'Modo Demo'}
-                      </span>
+                  
+                  <div className="bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-4 py-2">
+                    <div className="flex items-center space-x-3">
+                      <User size={16} className="text-gray-600" />
+                      <div>
+                        <div className="font-medium text-gray-900 text-sm">
+                          {profile?.full_name || user?.email?.split('@')[0]}
+                        </div>
+                        <div className="text-xs text-gray-500 capitalize">{profile?.role}</div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {/* User Info */}
-              <div className="flex items-center space-x-3 px-4 py-2 bg-gray-100/50 rounded-xl">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center">
-                    <User size={14} className="text-white" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-gray-900">
-                      {profile?.full_name || user?.email}
-                    </span>
-                    <span className="text-xs text-gray-500 capitalize">
-                      {profile?.role || 'viewer'}
-                    </span>
-                  </div>
-                </div>
+            {/* Actions */}
+            <div className="flex items-center space-x-4">
+              {/* Status Connection */}
+              <div className="hidden md:flex items-center space-x-2 bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-3 py-2">
+                {configStatus?.tokenConfigured ? (
+                  <Wifi size={16} className="text-green-500" />
+                ) : (
+                  <WifiOff size={16} className="text-amber-500" />
+                )}
+                <span className="text-sm font-medium text-gray-700">
+                  {configStatus?.tokenConfigured ? 'Online' : 'Configurando'}
+                </span>
               </div>
 
-              {/* Admin Link (apenas para admins) */}
-              {profile?.role === 'admin' && (
+              {/* ✅ ADMIN BUTTON - APENAS PARA ADMINS */}
+              {isAdmin && (
                 <button
                   onClick={() => router.push('/admin/users')}
-                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200"
-                  title="Administrar usuários"
+                  className="flex items-center space-x-2 px-4 py-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-xl transition-all duration-200 border border-purple-200/50"
+                  title="Administrar usuários do sistema"
                 >
-                  <User size={18} />
-                  <span className="text-sm font-medium">Admin</span>
+                  <Users size={18} />
+                  <span className="text-sm font-medium hidden sm:inline">Admin</span>
                 </button>
               )}
+
+              {/* ✅ SETTINGS BUTTON - PARA MANAGERS E ADMINS */}
+              {isManager && (
+                <button
+                  onClick={() => {/* Implementar depois */}}
+                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200"
+                  title="Configurações da empresa"
+                >
+                  <Settings size={18} />
+                  <span className="text-sm font-medium hidden sm:inline">Config</span>
+                </button>
+              )}
+
+              {/* Profile Badge com Role */}
+              <div className="flex items-center space-x-2 bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-3 py-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  profile?.role === 'admin' ? 'bg-red-500' :
+                  profile?.role === 'manager' ? 'bg-purple-500' :
+                  profile?.role === 'operator' ? 'bg-blue-500' :
+                  'bg-gray-500'
+                }`}></div>
+                <div className="flex items-center space-x-2">
+                  {profile?.role === 'admin' && <Shield size={14} className="text-red-500" />}
+                  <span className="text-sm font-medium text-gray-700 capitalize">
+                    {profile?.role}
+                  </span>
+                </div>
+              </div>
 
               {/* Logout Button */}
               <button
@@ -261,7 +244,7 @@ export default function DashboardPage() {
                 title="Sair do sistema"
               >
                 <LogOut size={18} />
-                <span className="text-sm font-medium">Sair</span>
+                <span className="text-sm font-medium hidden sm:inline">Sair</span>
               </button>
             </div>
           </div>
@@ -280,12 +263,30 @@ export default function DashboardPage() {
               <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
               <span className="text-emerald-400 font-medium text-sm tracking-wider uppercase">Tempo Real</span>
             </div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent mb-2">
+            <h1 className="text-4xl font-bold text-white mb-2">
               Operações Marítimas
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <p className="text-lg text-gray-300 max-w-2xl mx-auto">
               Monitoramento completo das operações de {company?.display_name} com métricas em tempo real
             </p>
+            
+            {/* User Info no Hero */}
+            <div className="mt-6 flex items-center justify-center space-x-6">
+              <div className="flex items-center space-x-2">
+                <User size={16} className="text-gray-400" />
+                <span className="text-gray-300">{profile?.full_name || user?.email}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Building2 size={16} className="text-gray-400" />
+                <span className="text-gray-300">{company?.display_name}</span>
+              </div>
+              {isAdmin && (
+                <div className="flex items-center space-x-2">
+                  <Shield size={16} className="text-red-400" />
+                  <span className="text-red-300">Administrador</span>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -301,6 +302,11 @@ export default function DashboardPage() {
           <p className="text-white/80 text-sm">
             © 2024 Duri Trading • Sistema de Tracking Marítimo • Usuário: {user?.email}
           </p>
+          {isAdmin && (
+            <p className="text-red-300 text-xs mt-1">
+              Acesso de Administrador Ativo
+            </p>
+          )}
         </div>
       </footer>
     </div>

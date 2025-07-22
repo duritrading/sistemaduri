@@ -1,219 +1,295 @@
-// src/app/login/page.tsx - LOGIN REAL SEM MOCKS
+// src/app/login/page.tsx - SEM BOTÃO DE CRIAR CONTA (APENAS ADMIN PODE CRIAR)
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, Building2, AlertCircle, CheckCircle, Settings, ExternalLink } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, AlertCircle, Settings, Database, Copy, Shield } from 'lucide-react';
 
 export default function LoginPage() {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
-    password: '',
-    confirmPassword: '',
-    fullName: '',
-    companySlug: ''
+    password: ''
   });
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const [companies, setCompanies] = useState<any[]>([]);
+  const [isClient, setIsClient] = useState(false);
+  const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'ready' | 'missing'>('checking');
 
-  const { signIn, signUp, user, loading: authLoading, supabaseConfigured } = useAuth();
+  const { signIn, user, profile, company, loading: authLoading, supabaseConfigured } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ✅ CARREGAR EMPRESAS REAIS DO ASANA
+  // ✅ DETECTAR CLIENT-SIDE E VERIFICAR DATABASE
   useEffect(() => {
-    loadCompaniesFromAsana();
-  }, []);
-
-  const loadCompaniesFromAsana = async () => {
-    try {
-      const response = await fetch('/api/asana/unified', {
-        method: 'GET',
-        cache: 'no-store'
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          // Extrair empresas dos dados reais
-          const { extractCompaniesFromTrackings } = await import('@/lib/auth');
-          const extractedCompanies = extractCompaniesFromTrackings(result.data);
-          setCompanies(extractedCompanies);
-          
-          if (extractedCompanies.length > 0 && !formData.companySlug) {
-            setFormData(prev => ({ ...prev, companySlug: extractedCompanies[0].id }));
-          }
-        }
+    const initClient = async () => {
+      setIsClient(true);
+      
+      if (supabaseConfigured) {
+        await checkDatabaseSetup();
       }
+    };
+    
+    initClient();
+  }, [supabaseConfigured]);
+
+  // ✅ VERIFICAR SE BANCO ESTÁ CONFIGURADO
+  const checkDatabaseSetup = async () => {
+    try {
+      setDatabaseStatus('checking');
+      
+      const { supabase } = await import('@/lib/supabase');
+      
+      // Tentar query simples para verificar tabelas
+      const { data, error } = await supabase
+        .from('companies')
+        .select('id')
+        .limit(1);
+      
+      if (error) {
+        console.error('❌ Tabelas não encontradas:', error.message);
+        setDatabaseStatus('missing');
+        setError('Banco de dados não configurado. Execute o SQL de setup no Supabase.');
+        return;
+      }
+      
+      console.log('✅ Banco de dados configurado');
+      setDatabaseStatus('ready');
+      setError('');
+      
     } catch (error) {
-      console.error('Erro ao carregar empresas:', error);
+      console.error('❌ Erro na verificação do banco:', error);
+      setDatabaseStatus('missing');
+      setError('Erro ao verificar banco de dados.');
     }
   };
 
   // ✅ REDIRECT SE JÁ AUTENTICADO
   useEffect(() => {
-    if (user && !authLoading) {
+    if (!isClient) return;
+    
+    if (user && profile && !authLoading) {
       const redirectTo = searchParams.get('redirect') || '/dashboard';
+      console.log('✅ Redirecionando usuário autenticado para:', redirectTo);
       router.push(redirectTo);
     }
-  }, [user, authLoading, router, searchParams]);
+  }, [user, profile, authLoading, router, searchParams, isClient]);
+
+  // ✅ TRATAR ERROS DA URL
+  useEffect(() => {
+    if (!isClient) return;
+    
+    const urlError = searchParams.get('error');
+    if (urlError) {
+      switch (urlError) {
+        case 'no_profile':
+          setError('Perfil não encontrado. O sistema tentará criar automaticamente no próximo login.');
+          break;
+        case 'access_denied':
+          setError('Acesso negado. Verifique suas permissões.');
+          break;
+        default:
+          setError(`Erro: ${urlError}`);
+      }
+    }
+  }, [searchParams, isClient]);
 
   // ✅ HANDLE FORM SUBMISSION
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccess('');
+
+    if (!isClient) return;
 
     if (!supabaseConfigured) {
       setError('Sistema não configurado. Configure as variáveis do Supabase primeiro.');
       return;
     }
 
+    if (databaseStatus === 'missing') {
+      setError('Execute o SQL de setup no Supabase antes de fazer login.');
+      return;
+    }
+
+    if (!formData.email || !formData.password) {
+      setError('Por favor, preencha todos os campos.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        // Validações para signup
-        if (!formData.fullName.trim()) {
-          throw new Error('Nome completo é obrigatório');
-        }
-        if (formData.password !== formData.confirmPassword) {
-          throw new Error('Senhas não coincidem');
-        }
-        if (formData.password.length < 6) {
-          throw new Error('Senha deve ter pelo menos 6 caracteres');
-        }
-        if (!formData.companySlug) {
-          throw new Error('Selecione uma empresa');
-        }
-
-        await signUp(formData.email, formData.password, formData.companySlug, formData.fullName);
-        setSuccess('Conta criada com sucesso! Verifique seu email para confirmar.');
-        
-        // Auto-switch para login após 3 segundos
-        setTimeout(() => {
-          setIsSignUp(false);
-          setSuccess('');
-        }, 3000);
+      console.log('🔄 Iniciando login para:', formData.email);
+      await signIn(formData.email, formData.password);
+      console.log('✅ Login bem-sucedido');
+      
+    } catch (err: any) {
+      console.error('❌ Erro no login:', err);
+      
+      if (err.message?.includes('Invalid login credentials')) {
+        setError('Email ou senha incorretos.');
+      } else if (err.message?.includes('Email not confirmed')) {
+        setError('Por favor, confirme seu email antes de fazer login.');
+      } else if (err.message?.includes('Too many requests')) {
+        setError('Muitas tentativas. Tente novamente em alguns minutos.');
       } else {
-        // Login
-        await signIn(formData.email, formData.password);
-        // Redirect é tratado pelo useEffect acima
+        setError(err.message || 'Erro ao fazer login. Tente novamente.');
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ HANDLE INPUT CHANGES
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError(''); // Clear error on input change
+  // ✅ COPIAR SQL PARA CLIPBOARD
+  const copySetupSQL = async () => {
+    const sql = `-- Execute este SQL no Supabase Dashboard > SQL Editor
+
+-- 1. DELETAR TABELAS EXISTENTES (se houver problemas)
+DROP TABLE IF EXISTS public.audit_logs CASCADE;
+DROP TABLE IF EXISTS public.tracking_data CASCADE; 
+DROP TABLE IF EXISTS public.user_profiles CASCADE;
+DROP TABLE IF EXISTS public.companies CASCADE;
+
+-- 2. CRIAR TABELA COMPANIES
+CREATE TABLE public.companies (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    active BOOLEAN DEFAULT true,
+    settings JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. CRIAR TABELA USER_PROFILES
+CREATE TABLE public.user_profiles (
+    id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+    company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
+    email TEXT NOT NULL,
+    full_name TEXT,
+    role TEXT DEFAULT 'viewer' CHECK (role IN ('admin', 'manager', 'operator', 'viewer')),
+    active BOOLEAN DEFAULT true,
+    last_login TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. INSERIR EMPRESA PADRÃO
+INSERT INTO public.companies (name, display_name, slug, active) 
+VALUES ('EMPRESA_PADRAO', 'Empresa Padrão', 'empresa-padrao', true);
+
+-- 5. HABILITAR RLS E POLICIES PERMISSIVAS
+ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir tudo companies" ON public.companies FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USING (true) WITH CHECK (true);`;
+
+    try {
+      await navigator.clipboard.writeText(sql);
+      alert('SQL copiado para o clipboard! Cole no Supabase SQL Editor.');
+    } catch (err) {
+      console.error('Erro ao copiar:', err);
+    }
   };
 
-  if (authLoading) {
+  // ✅ LOADING INICIAL
+  if (!isClient) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-[#b51c26] mx-auto mb-4" />
-          <p className="text-gray-400">Verificando autenticação...</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center p-4">
+        <div className="bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-2xl max-w-md w-full">
+          <div className="p-8">
+            <div className="text-center">
+              <Loader2 size={32} className="text-gray-400 animate-spin mx-auto mb-4" />
+              <p className="text-gray-600">Carregando sistema...</p>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ✅ SE SUPABASE NÃO CONFIGURADO
+  // ✅ SUPABASE NÃO CONFIGURADO
   if (!supabaseConfigured) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl">
-          <div className="text-center mb-8">
-            <div className="bg-gradient-to-r from-amber-500 to-orange-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
-              <Settings className="w-8 h-8 text-white" />
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center p-4">
+        <div className="bg-white/90 backdrop-blur-sm border border-amber-200/50 rounded-2xl p-8 shadow-2xl max-w-2xl w-full">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Settings size={32} className="text-amber-600" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">
-              Configuração Necessária
-            </h1>
-            <p className="text-gray-400">
-              Configure o Supabase para habilitar autenticação
-            </p>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Sistema Não Configurado</h2>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left">
+              <h3 className="font-semibold text-amber-800 mb-2">Configure o Supabase:</h3>
+              <ol className="text-sm text-amber-700 space-y-1 list-decimal list-inside">
+                <li>Acesse o arquivo <code className="bg-amber-100 px-1 rounded">.env.local</code></li>
+                <li>Configure as variáveis <code>NEXT_PUBLIC_SUPABASE_URL</code> e <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code></li>
+                <li>Reinicie o servidor de desenvolvimento</li>
+              </ol>
+            </div>
           </div>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-8 shadow-2xl">
-            <div className="space-y-6">
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
-                <div className="flex items-center space-x-3 mb-3">
-                  <AlertCircle className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-amber-400 font-semibold">Passos para Configuração</h3>
-                </div>
-                <ol className="text-sm text-gray-300 space-y-2 ml-8 list-decimal">
-                  <li>Crie um projeto no <a href="https://supabase.com" target="_blank" className="text-blue-400 hover:underline">Supabase</a></li>
-                  <li>Configure as variáveis no arquivo <code className="bg-gray-800 px-2 py-1 rounded">.env.local</code>:</li>
-                </ol>
-              </div>
-
-              <div className="bg-gray-800/50 rounded-xl p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-400 text-sm">Arquivo: .env.local</span>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(`NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
-SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key`)}
-                    className="text-blue-400 hover:text-blue-300 text-sm flex items-center space-x-1"
-                  >
-                    <span>Copiar</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                </div>
-                <pre className="text-gray-300 text-sm overflow-x-auto">
-{`NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
-SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key`}
-                </pre>
-              </div>
-
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-                <div className="flex items-center space-x-3 mb-3">
-                  <CheckCircle className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-blue-400 font-semibold">Estado Atual</h3>
-                </div>
-                <div className="text-sm text-gray-300 space-y-2">
-                  <p>✅ API Asana funcionando</p>
-                  <p>✅ {companies.length} empresas encontradas: {companies.map(c => c.displayName).join(', ')}</p>
-                  <p>❌ Supabase não configurado</p>
-                  <p>❌ Autenticação não disponível</p>
-                </div>
-              </div>
-
-              <div className="text-center pt-4">
-                <p className="text-gray-400 text-sm mb-4">
-                  Após configurar, reinicie o servidor e recarregue a página
-                </p>
-                <div className="flex space-x-3 justify-center">
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="px-6 py-3 bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white rounded-xl font-semibold hover:scale-105 transform transition-all"
-                  >
-                    Recarregar Página
-                  </button>
-                  <a
-                    href="https://supabase.com/dashboard"
-                    target="_blank"
-                    className="px-6 py-3 bg-gray-700 text-white rounded-xl font-semibold hover:bg-gray-600 transition-colors flex items-center space-x-2"
-                  >
-                    <span>Ir ao Supabase</span>
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                </div>
-              </div>
+  // ✅ BANCO NÃO CONFIGURADO
+  if (databaseStatus === 'missing') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center p-4">
+        <div className="bg-white/90 backdrop-blur-sm border border-red-200/50 rounded-2xl p-8 shadow-2xl max-w-2xl w-full">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Database size={32} className="text-red-600" />
             </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Banco de Dados Não Configurado</h2>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left mb-6">
+              <h3 className="font-semibold text-red-800 mb-2">Execute o SQL no Supabase:</h3>
+              <ol className="text-sm text-red-700 space-y-1 list-decimal list-inside">
+                <li>Acesse o Supabase Dashboard</li>
+                <li>Vá em <strong>SQL Editor</strong></li>
+                <li>Cole e execute o SQL abaixo</li>
+                <li>Volte aqui e clique em "Verificar Novamente"</li>
+              </ol>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={copySetupSQL}
+                className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg font-medium flex items-center justify-center space-x-2 hover:bg-blue-700"
+              >
+                <Copy size={16} />
+                <span>Copiar SQL</span>
+              </button>
+              
+              <button
+                onClick={checkDatabaseSetup}
+                className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-green-700"
+              >
+                Verificar Novamente
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ LOADING AUTH STATE
+  if (authLoading || databaseStatus === 'checking') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
+        <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center mx-auto mb-4">
+              <Loader2 size={32} className="text-white animate-spin" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              {databaseStatus === 'checking' ? 'Verificando Sistema' : 'Verificando Autenticação'}
+            </h3>
+            <p className="text-gray-600">Aguarde um momento...</p>
           </div>
         </div>
       </div>
@@ -221,222 +297,136 @@ SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key`}
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* ✅ LOGO E HEADER */}
-        <div className="text-center mb-8">
-          <div className="bg-gradient-to-r from-[#b51c26] to-[#dc2626] w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
-            <Building2 className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Sistema Marítimo
-          </h1>
-          <p className="text-gray-400">
-            {isSignUp ? 'Criar nova conta' : 'Entre em sua conta'}
-          </p>
-        </div>
-
-        {/* ✅ FORM CONTAINER */}
-        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-8 shadow-2xl">
-          {/* ✅ TOGGLE LOGIN/SIGNUP */}
-          <div className="flex bg-gray-800/50 rounded-2xl p-1 mb-6">
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(false);
-                setError('');
-                setSuccess('');
-              }}
-              className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
-                !isSignUp 
-                  ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-lg' 
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <LogIn className="w-4 h-4 inline mr-2" />
-              Entrar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(true);
-                setError('');
-                setSuccess('');
-              }}
-              className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
-                isSignUp 
-                  ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-lg' 
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              <Building2 className="w-4 h-4 inline mr-2" />
-              Criar Conta
-            </button>
-          </div>
-
-          {/* ✅ ALERTS */}
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center space-x-3">
-              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-              <p className="text-red-400 text-sm">{error}</p>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center p-4">
+      <div className="bg-white/90 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-2xl max-w-md w-full">
+        
+        {/* ✅ HEADER */}
+        <div className="p-8 pb-6">
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-4">
+              <img 
+                src="/duriLogo.webp" 
+                alt="Duri Trading" 
+                className="h-16 w-auto drop-shadow-lg"
+              />
             </div>
-          )}
-
-          {success && (
-            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 mb-6 flex items-center space-x-3">
-              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
-              <p className="text-green-400 text-sm">{success}</p>
-            </div>
-          )}
-
-          {/* ✅ FORM */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Nome Completo (apenas signup) */}
-            {isSignUp && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Nome Completo *
-                </label>
-                <input
-                  type="text"
-                  value={formData.fullName}
-                  onChange={(e) => handleInputChange('fullName', e.target.value)}
-                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
-                  placeholder="Seu nome completo"
-                  required={isSignUp}
-                />
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">
+              Sistema Duri Trading
+            </h1>
+            <p className="text-gray-600 mt-2">
+              Faça login para acessar o sistema
+            </p>
+            
+            {/* Status do banco */}
+            {databaseStatus === 'ready' && (
+              <div className="flex items-center justify-center space-x-2 mt-3">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span className="text-sm text-green-600">Sistema Online</span>
               </div>
             )}
+          </div>
 
+          {/* ✅ ERROR DISPLAY */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
+              <AlertCircle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-red-800 font-medium">Erro no Login</p>
+                <p className="text-red-700 text-sm mt-1">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ LOGIN FORM */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Email *
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
                   type="email"
                   value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
+                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#b51c26] focus:border-transparent bg-white/80"
                   placeholder="seu@email.com"
                   required
+                  disabled={loading || databaseStatus !== 'ready'}
                 />
               </div>
             </div>
 
-            {/* Empresa (apenas signup) */}
-            {isSignUp && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Empresa *
-                </label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <select
-                    value={formData.companySlug}
-                    onChange={(e) => handleInputChange('companySlug', e.target.value)}
-                    className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors appearance-none"
-                    required={isSignUp}
-                  >
-                    <option value="" className="bg-gray-800">Selecione uma empresa</option>
-                    {companies.map(company => (
-                      <option key={company.id} value={company.id} className="bg-gray-800">
-                        {company.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {companies.length === 0 && (
-                  <p className="text-gray-400 text-xs mt-1">
-                    Carregando empresas do Asana...
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Senha */}
+            {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Senha *
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Senha
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock size={20} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-12 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
-                  placeholder={isSignUp ? 'Mínimo 6 caracteres' : 'Sua senha'}
+                  onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#b51c26] focus:border-transparent bg-white/80"
+                  placeholder="Sua senha"
                   required
+                  disabled={loading || databaseStatus !== 'ready'}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  disabled={loading}
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
             </div>
 
-            {/* Confirmar Senha (apenas signup) */}
-            {isSignUp && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Confirmar Senha *
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                    className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
-                    placeholder="Confirme sua senha"
-                    required={isSignUp}
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white py-4 px-6 rounded-xl font-semibold shadow-2xl hover:shadow-[#b51c26]/25 hover:scale-105 transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              disabled={loading || databaseStatus !== 'ready'}
+              className="w-full bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white py-3 px-6 rounded-lg font-medium shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="flex items-center justify-center space-x-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{isSignUp ? 'Criando conta...' : 'Entrando...'}</span>
+                  <span>Entrando...</span>
                 </div>
               ) : (
                 <div className="flex items-center justify-center space-x-2">
-                  {isSignUp ? <Building2 className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
-                  <span>{isSignUp ? 'Criar Conta' : 'Entrar'}</span>
+                  <LogIn className="w-5 h-5" />
+                  <span>Entrar</span>
                 </div>
               )}
             </button>
           </form>
 
+          {/* ✅ ACESSO RESTRITO INFO */}
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <Shield size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-blue-800 font-medium text-sm">Acesso Restrito</p>
+                  <p className="text-blue-700 text-xs mt-1">
+                    Apenas usuários autorizados podem acessar o sistema. 
+                    Entre em contato com o administrador para criar sua conta.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* ✅ FOOTER INFO */}
-          <div className="mt-8 pt-6 border-t border-white/10 text-center">
-            <p className="text-gray-400 text-sm">
-              {isSignUp 
-                ? 'Ao criar uma conta, você aceita nossos termos de uso.' 
-                : `${companies.length} empresas disponíveis para acesso`
-              }
+          <div className="mt-6 text-center">
+            <p className="text-gray-500 text-sm">
+              Sistema de Tracking Marítimo • Duri Trading
             </p>
           </div>
-        </div>
-
-        {/* ✅ SYSTEM STATUS */}
-        <div className="text-center mt-6">
-          <p className="text-gray-500 text-xs">
-            Sistema Duri Trading • Supabase Configurado • {companies.length} Empresas
-          </p>
         </div>
       </div>
     </div>

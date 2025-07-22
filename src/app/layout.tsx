@@ -1,4 +1,4 @@
-// src/app/layout.tsx - LAYOUT COM AUTHPROVIDER (PRODUCTION-READY)
+// src/app/layout.tsx - LAYOUT HYDRATION SAFE
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/providers/AuthProvider';
@@ -17,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR">
-      <body className={inter.className}>
+    <html lang="pt-BR" suppressHydrationWarning={true}>
+      <body className={inter.className} suppressHydrationWarning={true}>
         <AuthProvider>
           {children}
         </AuthProvider>
