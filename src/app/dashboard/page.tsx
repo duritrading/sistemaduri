@@ -1,11 +1,13 @@
-// src/app/dashboard/page.tsx - HEADER REDESIGNED + NAVEGAÇÃO FUNCIONAL
+// ✅ ATUALIZAÇÃO RÁPIDA: src/app/dashboard/page.tsx
+// Use esta versão que não precisa dos componentes premium ainda
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentCompany, clearCurrentCompany, Company } from '@/lib/auth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
-import { LogOut } from 'lucide-react';
+import { LogOut, Activity, Wifi, WifiOff, Sparkles } from 'lucide-react';
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -15,7 +17,7 @@ export default function DashboardPage() {
   const [activeSection, setActiveSection] = useState('resumo');
   const router = useRouter();
 
-  // ✅ Refs para navegação suave entre seções
+  // ✅ Refs para navegação suave
   const resumoRef = useRef<HTMLDivElement>(null);
   const graficosRef = useRef<HTMLDivElement>(null);
   const operacoesRef = useRef<HTMLDivElement>(null);
@@ -29,27 +31,21 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
-      // ✅ Verificar autenticação - empresa DEVE estar selecionada
       const currentCompany = getCurrentCompany();
       if (!currentCompany) {
-        console.log('❌ Nenhuma empresa selecionada, redirecionando para login');
         router.push('/login');
         return;
       }
       
-      console.log(`✅ Dashboard inicializado para empresa: ${currentCompany.name}`);
       setCompany(currentCompany);
 
-      // ✅ Verificar status da configuração do Asana (não bloquear se falhar)
       try {
         const statusResponse = await fetch('/api/asana/status');
         if (statusResponse.ok) {
           const status = await statusResponse.json();
           setConfigStatus(status);
-          console.log('📊 Status Asana:', status.tokenConfigured ? 'Conectado' : 'Modo Demo');
         }
       } catch (statusError) {
-        console.warn('⚠️ Não foi possível verificar status do Asana:', statusError);
         setConfigStatus({
           tokenConfigured: false,
           usingMockData: true,
@@ -58,220 +54,217 @@ export default function DashboardPage() {
       }
 
     } catch (err) {
-      console.error('❌ Dashboard initialization error:', err);
       setError(err instanceof Error ? err.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
   };
 
+  const scrollToSection = (sectionId: 'resumo' | 'graficos' | 'operacoes') => {
+    const refs = { resumo: resumoRef, graficos: graficosRef, operacoes: operacoesRef };
+    const targetRef = refs[sectionId];
+    
+    if (targetRef?.current) {
+      targetRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start'
+      });
+      setActiveSection(sectionId);
+    }
+  };
+
   const handleLogout = () => {
-    console.log('🚪 Logout - limpando empresa selecionada');
     clearCurrentCompany();
     router.push('/login');
   };
 
-  // ✅ Função para navegação suave entre seções
-  const scrollToSection = (section: string) => {
-    setActiveSection(section);
-    
-    let targetRef;
-    switch (section) {
-      case 'resumo':
-        targetRef = resumoRef;
-        break;
-      case 'graficos':
-        targetRef = graficosRef;
-        break;
-      case 'operacoes':
-        targetRef = operacoesRef;
-        break;
-      default:
-        return;
-    }
-
-    if (targetRef.current) {
-      targetRef.current.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'start' 
-      });
-    }
-  };
-
+  // ✅ Loading Premium
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Inicializando sistema de tracking...</p>
-          {company && (
-            <p className="text-sm text-gray-500 mt-2">Empresa: {company.displayName}</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md mx-auto text-center">
-          <div className="bg-red-50 border border-red-200 text-red-800 px-6 py-4 rounded-lg">
-            <h2 className="text-lg font-semibold mb-2">Erro no Dashboard</h2>
-            <p className="mb-4">{error}</p>
-            <div className="space-x-2">
-              <button 
-                onClick={() => initializeDashboard()}
-                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-              >
-                Tentar Novamente
-              </button>
-              <button 
-                onClick={handleLogout}
-                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-              >
-                Voltar ao Login
-              </button>
-            </div>
+          <div className="w-16 h-16 border-4 border-[#b51c26]/20 border-t-[#b51c26] rounded-full animate-spin mx-auto mb-6" />
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-800 to-[#b51c26] bg-clip-text text-transparent">
+              Carregando Dashboard
+            </h2>
+            <p className="text-gray-600">Preparando dados operacionais...</p>
+          </div>
+          <div className="mt-8 flex items-center justify-center space-x-2 text-[#b51c26]">
+            <Sparkles size={20} />
+            <span className="font-medium">Duri Trading</span>
+            <Sparkles size={20} />
           </div>
         </div>
       </div>
     );
   }
 
-  if (!company) {
-    router.push('/login');
-    return null;
+  // ✅ Error Premium
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
+        <div className="bg-white/80 backdrop-blur-sm border border-red-200/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Activity size={32} className="text-red-600" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Erro no Dashboard</h3>
+            <p className="text-gray-600">{error}</p>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white py-3 px-6 rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* ✅ HEADER REDESIGNED - LAYOUT MODERNO */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="w-full px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20">
+      {/* ✅ HEADER PREMIUM (usando componentes existentes) */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200/50 shadow-lg">
+        <div className="absolute inset-0 bg-gradient-to-r from-gray-50 via-white to-red-50/30" />
+        
+        <div className="relative w-full px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             
-            {/* ✅ LADO ESQUERDO: Logo + Título (Mais Afastados) */}
-            <div className="flex items-center space-x-4 justify-start">
-              <img 
-                src="/duriLogo.webp" 
-                alt="Duri Trading" 
-                className="h-14 w-auto"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <div className="flex items-baseline space-x-2">
-  <h1 className="text-xl font-bold text-gray-900">Sistema de Tracking</h1>
-  <p className="text-xl font-bold text-gray-900">{company.displayName}</p>
-</div>
-            </div>
-
-            {/* ✅ CENTRO: Navegação Compacta e Funcional */}
-            <nav className="flex items-center space-x-2 justify-center">
-              <button
-                onClick={() => scrollToSection('resumo')}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeSection === 'resumo' 
-                   ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
-                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
-                }`}
-              >
-                Resumo Operacional
-              </button>
-              
-              <button
-                onClick={() => scrollToSection('graficos')}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeSection === 'graficos' 
-                    ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
-                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
-                }`}
-              >
-                Gráficos Operacionais
-              </button>
-              
-              <button
-                onClick={() => scrollToSection('operacoes')}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeSection === 'operacoes' 
-                   ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
-                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
-                }`}
-              >
-                Operações Detalhadas
-              </button>
-            </nav>
-
-            {/* ✅ LADO DIREITO: Status + Sair */}
-            <div className="flex items-center space-x-4 justify-end">
-              {/* Status da Configuração */}
-              {configStatus && (
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    configStatus.tokenConfigured ? 'bg-green-500' : 'bg-yellow-500'
-                  }`}></div>
-                  <span className="text-xs text-gray-600">
-                    {configStatus.tokenConfigured ? 'Online' : 'Verificando'}
-                  </span>
-                </div>
-              )}
-              
-              {/* Botão Sair */}
-              <button
-                onClick={handleLogout}
-                className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                title="Sair do sistema"
-              >
-                <LogOut size={16} className="mr-1" />
-                Sair
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ✅ Aviso sobre configuração (se necessário) */}
-      {configStatus && !configStatus.tokenConfigured && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
+            {/* Logo + Brand */}
+            <div className="flex items-center space-x-6">
+              <div className="relative">
+                <img 
+                  src="/duriLogo.webp" 
+                  alt="Duri Trading" 
+                  className="h-16 w-auto drop-shadow-lg hover:scale-105 transition-transform"
+                  onError={(e) => e.currentTarget.style.display = 'none'}
+                />
               </div>
-              <div className="ml-3">
-                <p className="text-sm text-yellow-700">
-                  <strong>Verificando Conexão:</strong> {configStatus.message || 'Conectando com Asana...'}
-                  {!configStatus.tokenConfigured && (
-                    <>
-                      {' '}Configure ASANA_ACCESS_TOKEN no .env.local para dados reais.
-                      <button
-                        onClick={() => window.open('https://developers.asana.com/docs/personal-access-token', '_blank')}
-                        className="ml-2 text-yellow-800 underline hover:text-yellow-900"
-                      >
-                        Como obter token →
-                      </button>
-                    </>
-                  )}
+              
+              <div className="flex flex-col">
+                <div className="flex items-baseline space-x-3">
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">
+                    Sistema de Tracking
+                  </h1>
+                  <div className="px-3 py-1 bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white text-sm font-medium rounded-full shadow-lg">
+                    {company?.displayName}
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 font-medium">
+                  Maritime Operations Dashboard
                 </p>
               </div>
             </div>
+
+            {/* Navegação Premium */}
+            <nav className="flex items-center space-x-2">
+              {[
+                { id: 'resumo', label: 'Resumo Operacional' },
+                { id: 'graficos', label: 'Analytics' },
+                { id: 'operacoes', label: 'Operações' }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => scrollToSection(item.id as any)}
+                  className={`
+                    relative px-6 py-3 rounded-xl font-medium text-sm transition-all duration-300
+                    ${activeSection === item.id 
+                      ? 'bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white shadow-xl' 
+                      : 'text-gray-600 hover:text-white hover:bg-gradient-to-r hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
+                    }
+                  `}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+
+            {/* Status + Logout */}
+            <div className="flex items-center space-x-4">
+              {configStatus && (
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-3 h-3 rounded-full animate-pulse ${
+                      configStatus.tokenConfigured 
+                        ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' 
+                        : 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+                    }`} />
+                    <div className="flex items-center space-x-1 text-sm">
+                      {configStatus.tokenConfigured ? (
+                        <Wifi size={16} className="text-emerald-600" />
+                      ) : (
+                        <WifiOff size={16} className="text-amber-600" />
+                      )}
+                      <span className={`font-medium ${
+                        configStatus.tokenConfigured ? 'text-emerald-600' : 'text-amber-600'
+                      }`}>
+                        {configStatus.tokenConfigured ? 'Conectado' : 'Modo Demo'}
+                      </span>
+                    </div>
+                  </div>
+                  <Activity size={16} className="text-gray-400 animate-pulse" />
+                </div>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl shadow-lg hover:shadow-xl transition-all hover:scale-105 group"
+              >
+                <LogOut size={16} className="group-hover:rotate-12 transition-transform" />
+                <span className="font-medium">Sair</span>
+              </button>
+            </div>
           </div>
         </div>
-      )}
-
-      {/* ✅ Dashboard Content com Seções Identificadas */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div ref={resumoRef} id="resumo" className="scroll-mt-24">
-          <MaritimeDashboard companyFilter={company.name} />
-        </div>
         
-        {/* ✅ Seções adicionais serão renderizadas dentro do MaritimeDashboard */}
-        <div ref={graficosRef} id="graficos" className="scroll-mt-24"></div>
-        <div ref={operacoesRef} id="operacoes" className="scroll-mt-24"></div>
-      </div>
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#b51c26]/30 to-transparent" />
+      </header>
+
+      {/* ✅ MAIN CONTENT Premium */}
+      <main className="relative">
+        {/* Background Elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-gradient-to-r from-[#b51c26]/10 to-red-300/10 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/3 w-48 h-48 bg-gradient-to-r from-blue-200/10 to-purple-200/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}} />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 container mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+          
+          {/* Seções */}
+          <section ref={resumoRef} id="resumo" className="scroll-mt-24">
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center space-x-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full border border-gray-200/50 shadow-lg mb-4">
+                <div className="w-2 h-2 bg-[#b51c26] rounded-full animate-pulse" />
+                <span className="text-sm font-medium text-gray-700">Dashboard em Tempo Real</span>
+              </div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent mb-2">
+                Operações Marítimas
+              </h1>
+              <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                Monitoramento completo das suas operações de trading internacional com métricas em tempo real
+              </p>
+            </div>
+          </section>
+
+          <section ref={graficosRef} id="graficos" className="scroll-mt-24" />
+          <section ref={operacoesRef} id="operacoes" className="scroll-mt-24" />
+
+          {/* Dashboard Principal usando componente existente */}
+          <MaritimeDashboard companyFilter={company?.name} />
+        </div>
+      </main>
+
+      {/* Footer Premium */}
+      <footer className="relative mt-16 py-8 bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900">
+        <div className="container mx-auto px-4 text-center">
+          <p className="text-white/80 text-sm">
+            © 2024 Duri Trading • Sistema de Tracking Marítimo
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
