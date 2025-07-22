@@ -192,13 +192,27 @@ export function MaritimeDashboard({
 
   // ✅ Extrair opções únicas para filtros (MANTIDO EXATO)
   const filterOptions = useMemo(() => {
-    return {
-      statuses: [...new Set(trackings.map(t => t.maritimeStatus))].filter(Boolean).sort(),
-      exporters: [...new Set(trackings.map(t => t.transport.exporter))].filter(Boolean).sort(),
-      products: [...new Set(trackings.flatMap(t => t.transport.products))].filter(Boolean).sort(),
-      orgaosAnuentes: [...new Set(trackings.flatMap(t => t.regulatory.orgaosAnuentes))].filter(Boolean).sort()
-    };
-  }, [trackings]);
+  // Helper para extrair valores únicos e filtrar nulos
+  const getUniqueValues = (values: (string | null)[]): string[] => {
+    return Array.from(new Set(values))
+      .filter((value): value is string => Boolean(value))
+      .sort();
+  };
+
+  // Helper para extrair valores de arrays aninhados
+  const getUniqueArrayValues = (arrayValues: string[][]): string[] => {
+    return Array.from(new Set(arrayValues.flat()))
+      .filter((value): value is string => Boolean(value))
+      .sort();
+  };
+
+  return {
+    statuses: getUniqueValues(trackings.map(t => t.maritimeStatus)),
+    exporters: getUniqueValues(trackings.map(t => t.transport.exporter)),
+    products: getUniqueArrayValues(trackings.map(t => t.transport.products || [])),
+    orgaosAnuentes: getUniqueArrayValues(trackings.map(t => t.regulatory.orgaosAnuentes || []))
+  };
+}, [trackings]);
 
   // ✅ HANDLERS para callbacks
   const handleFilterChange = (key: keyof FilterState, value: string) => {
