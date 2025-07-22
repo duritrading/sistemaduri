@@ -147,20 +147,23 @@ export function OperationsDashboard({
   };
 
   // ✅ Extração de dados seguros
-  const getTrackingData = (tracking: Tracking) => {
-    return {
-      referencia: tracking.ref || tracking.title?.substring(0, 20) || 'N/A',
-      status: tracking.maritimeStatus || 'N/A',
-      exportador: tracking.transport?.exporter || tracking.customFields?.['Exportador'] || tracking.customFields?.['EXPORTADOR'] || '-',
-      produto: tracking.transport?.products?.join(', ') || tracking.customFields?.['PRODUTO'] || tracking.customFields?.['Produto'] || '-',
-      companhia: tracking.transport?.company || tracking.business?.empresa || tracking.company || '-',
-      navio: tracking.transport?.vessel || tracking.customFields?.['NAVIO'] || tracking.customFields?.['Navio'] || '-',
-      orgaosAnuentes: tracking.regulatory?.orgaosAnuentes?.join(', ') || tracking.customFields?.['Órgãos Anuentes'] || '-',
-      eta: formatDate(tracking.schedule?.eta || tracking.customFields?.['ETA']),
-      etd: formatDate(tracking.schedule?.etd || tracking.customFields?.['ETD']),
-      responsavel: tracking.schedule?.responsible || tracking.customFields?.['Responsável'] || tracking.customFields?.['RESPONSAVEL'] || '-'
-    };
+const getTrackingData = (tracking: Tracking) => {
+  return {
+    referencia: tracking.ref || tracking.title?.substring(0, 20) || 'N/A',
+    status: tracking.maritimeStatus || 'N/A',
+    exportador: tracking.transport?.exporter || tracking.customFields?.['Exportador'] || tracking.customFields?.['EXPORTADOR'] || '-',
+    produto: tracking.transport?.products?.join(', ') || tracking.customFields?.['PRODUTO'] || tracking.customFields?.['Produto'] || '-',
+    
+    // ✅ LINHA CORRIGIDA - Removido tracking.company do fallback
+    companhia: tracking.transport?.company || tracking.business?.empresa || '-',
+    
+    navio: tracking.transport?.vessel || tracking.customFields?.['NAVIO'] || tracking.customFields?.['Navio'] || '-',
+    orgaosAnuentes: tracking.regulatory?.orgaosAnuentes?.join(', ') || tracking.customFields?.['Órgãos Anuentes'] || '-',
+    eta: formatDate(tracking.schedule?.eta || tracking.customFields?.['ETA']),
+    etd: formatDate(tracking.schedule?.etd || tracking.customFields?.['ETD']),
+    responsavel: tracking.schedule?.responsible || tracking.customFields?.['Responsável'] || tracking.customFields?.['RESPONSAVEL'] || '-'
   };
+};
 
   if (loading) {
     return (
