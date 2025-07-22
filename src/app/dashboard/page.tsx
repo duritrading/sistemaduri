@@ -148,37 +148,33 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       {/* ✅ HEADER REDESIGNED - LAYOUT MODERNO */}
       <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px10 sm:px10 lg:px10">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             
             {/* ✅ LADO ESQUERDO: Logo + Título (Mais Afastados) */}
-            <div className="flex items-center">
+            <div className="flex items-center space-x-4 justify-start">
               <img 
                 src="/duriLogo.webp" 
                 alt="Duri Trading" 
-                className="h-14 w-auto mr-4" // ✅ Logo maior (h-14) + mais espaçamento (mr-8)
+                className="h-14 w-auto"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
-              <div className="flex flex-col">
-                <h1 className="text-xl font-bold text-gray-900">
-                  Sistema de Tracking
-                </h1>
-                <p className="text-sm font-medium text-blue-600">
-                  {company.displayName}
-                </p>
-              </div>
+              <div className="flex items-baseline space-x-2">
+  <h1 className="text-xl font-bold text-gray-900">Sistema de Tracking</h1>
+  <p className="text-xl font-bold text-gray-900">{company.displayName}</p>
+</div>
             </div>
 
             {/* ✅ CENTRO: Navegação Compacta e Funcional */}
-            <nav className="flex items-center space-x-1">
+            <nav className="flex items-center space-x-2 justify-center">
               <button
                 onClick={() => scrollToSection('resumo')}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                   activeSection === 'resumo' 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                   ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
+                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
                 }`}
               >
                 Resumo Operacional
@@ -188,8 +184,8 @@ export default function DashboardPage() {
                 onClick={() => scrollToSection('graficos')}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                   activeSection === 'graficos' 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                    ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
+                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
                 }`}
               >
                 Gráficos Operacionais
@@ -199,8 +195,8 @@ export default function DashboardPage() {
                 onClick={() => scrollToSection('operacoes')}
                 className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
                   activeSection === 'operacoes' 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                   ? 'bg-[#b51c26] text-white border-2 border-[#b51c26] shadow-md focus:outline-none focus:ring-0' 
+                   : 'text-gray-600 hover:text-[#b51c26] hover:bg-red-50'
                 }`}
               >
                 Operações Detalhadas
@@ -208,7 +204,7 @@ export default function DashboardPage() {
             </nav>
 
             {/* ✅ LADO DIREITO: Status + Sair */}
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4 justify-end">
               {/* Status da Configuração */}
               {configStatus && (
                 <div className="flex items-center space-x-2">
