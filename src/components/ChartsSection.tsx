@@ -240,16 +240,19 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
 
   return (
     <div className="space-y-8 mb-16">
-      {/* ✅ HEADER PREMIUM DOS GRÁFICOS - Mais afastado e bonito */}
-      <div className="relative mt-12 mb-8">
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#b51c26]/10 to-transparent h-px top-1/2"></div>
-        <div className="relative bg-gradient-to-r from-white via-gray-50 to-white px-8">
-          <div className="text-center">
-            <div className="inline-flex items-center space-x-3 bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl px-6 py-3 shadow-lg">
-              <div className="w-8 h-8 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-xl flex items-center justify-center shadow-md">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
+          {/* ✅ HEADER SECTION da seção Gráficos (ESPAÇAMENTO AUMENTADO) */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-red-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group mb-10">
+        <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/5 to-transparent group-hover:from-[#b51c26]/10 transition-all"></div>
+        
+        <div className="relative z-10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <div className="w-12 h-12 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
               </div>
               <div>
                 <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">

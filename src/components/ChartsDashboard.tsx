@@ -80,13 +80,7 @@ export function ChartsDashboard({
 
   return (
     <div id="graficos" className="scroll-mt-16">
-      {/* ✅ HEADER da seção Gráficos */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Gráficos Operacionais</h2>
-        <p className="text-gray-600">
-          Visualização dos dados de tracking marítimo • {filteredTrackings.length} operações
-        </p>
-      </div>
+      {/* ✅ HEADER REMOVIDO - Mantém apenas o header premium do ChartsSection */}
       
       {/* ✅ SEÇÃO DE GRÁFICOS */}
       {filteredTrackings.length > 0 ? (

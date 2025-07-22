@@ -292,7 +292,7 @@ export function MaritimeDashboard({
       />
 
       {/* ✅ COMPONENTE CHARTS - Seção de Gráficos (SEM HEADER ANTIGO) */}
-      <div className="pt-8">
+      <div className="pt-3">
         <ChartsDashboard
           filteredTrackings={filteredTrackings}
           loading={false}
