@@ -1,4 +1,6 @@
-// src/lib/auth.ts - Corrigido para Títulos Reais do Asana
+// src/lib/auth.ts - ARQUIVO DE COMPATIBILIDADE DURANTE MIGRAÇÃO
+// Mantém funções antigas funcionando enquanto migramos para Supabase
+
 export interface Company {
   id: string;
   name: string;
@@ -161,100 +163,11 @@ function formatDisplayName(companyName: string): string {
 }
 
 /**
- * Filtra trackings por empresa usando extração de título
+ * Extrai empresa de um tracking individual
  */
-export function filterTrackingsByCompany(trackings: any[], companyName: string): any[] {
-  if (!trackings || !Array.isArray(trackings)) {
-    console.log('⚠️ Trackings inválidos para filtragem');
-    return [];
-  }
-
-  console.log(`🔍 Filtrando ${trackings.length} trackings para empresa: ${companyName}`);
-  
-  const filtered = trackings.filter(tracking => {
-    const title = tracking.name || tracking.title || '';
-    if (!title) return false;
-    
-    const trackingCompany = extractCompanyFromTitle(title);
-    
-    if (!trackingCompany) return false;
-    
-    // Comparação flexível - aceita match parcial ou total
-    const isMatch = trackingCompany.includes(companyName.toUpperCase()) ||
-                   companyName.toUpperCase().includes(trackingCompany) ||
-                   trackingCompany === companyName.toUpperCase();
-    
-    if (isMatch) {
-      console.log(`✅ Match: "${trackingCompany}" ← "${title}" para empresa "${companyName}"`);
-    }
-    
-    return isMatch;
-  });
-
-  console.log(`📊 Resultado: ${filtered.length} trackings filtrados de ${trackings.length} total`);
-  
-  return filtered;
-}
-
-/**
- * Extrai informações da empresa diretamente de um tracking específico
- */
-export function extractCompanyFromTracking(tracking: any): string | null {
+function extractCompanyFromTracking(tracking: any): string | null {
   const title = tracking.name || tracking.title || '';
   return extractCompanyFromTitle(title);
-}
-
-/**
- * Testa a extração com títulos reais do Asana
- */
-export function testRealTitleExtraction(): void {
-  const realTitles = [
-    // Casos SEM parênteses (maioria dos casos)
-    "122º WCB",
-    "28º AGRIVALE", 
-    "14º NATURALLY",
-    "121º WCB",
-    "120º WCB",
-    "115º WCB",
-    "13º.1 NATURALLY",
-    "119º WCB", 
-    "114º WCB",
-    
-    // Casos COM parênteses
-    "17º AMZ (IMPORTAÇÃO)",
-    "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)",
-    
-    // Casos edge para validação
-    "001º TESTE",
-    "999º EMPRESA LONGA",
-    "50º ABC"
-  ];
-
-  console.log('🧪 TESTE COM TÍTULOS REAIS DO ASANA (CORRIGIDO)\n');
-  
-  realTitles.forEach((title, index) => {
-    const extracted = extractCompanyFromTitle(title);
-    console.log(`${index + 1}. "${title}" → ${extracted ? `"${extracted}"` : 'NÃO EXTRAÍDO'}`);
-  });
-  
-  // Testar extração completa
-  const mockTrackings = realTitles.map(title => ({ name: title }));
-  const companies = extractCompaniesFromTrackings(mockTrackings);
-  
-  console.log(`\n✅ RESULTADO: ${companies.length} empresas extraídas`);
-  companies.forEach(c => console.log(`- ${c.name} (${c.displayName})`));
-  
-  // Validação específica dos casos sem parênteses
-  const withoutParentheses = [
-    "122º WCB", "28º AGRIVALE", "14º NATURALLY", "121º WCB", "120º WCB"
-  ];
-  
-  console.log(`\n🔍 TESTE ESPECÍFICO - Casos SEM parênteses:`);
-  withoutParentheses.forEach(title => {
-    const extracted = extractCompanyFromTitle(title);
-    const status = extracted ? '✅' : '❌';
-    console.log(`${status} "${title}" → ${extracted || 'FALHOU'}`);
-  });
 }
 
 /**

@@ -1,106 +1,219 @@
-// src/app/login/page.tsx - Login Simplificado com Empresas do Asana
+// src/app/login/page.tsx - LOGIN REAL SEM MOCKS
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { setCurrentCompany, getCurrentCompany, Company } from '@/lib/auth';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, Building2, AlertCircle, CheckCircle, Settings, ExternalLink } from 'lucide-react';
 
-export default function CompanySelectionLoginPage() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function LoginPage() {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    confirmPassword: '',
+    fullName: '',
+    companySlug: ''
+  });
   const [error, setError] = useState('');
-  const [systemStatus, setSystemStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const router = useRouter();
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [companies, setCompanies] = useState<any[]>([]);
 
+  const { signIn, signUp, user, loading: authLoading, supabaseConfigured } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ✅ CARREGAR EMPRESAS REAIS DO ASANA
   useEffect(() => {
-    checkExistingAuth();
     loadCompaniesFromAsana();
   }, []);
 
-  const checkExistingAuth = () => {
-    const currentCompany = getCurrentCompany();
-    if (currentCompany) {
-      console.log('✅ Usuário já autenticado:', currentCompany.name);
-      router.push('/dashboard');
+  const loadCompaniesFromAsana = async () => {
+    try {
+      const response = await fetch('/api/asana/unified', {
+        method: 'GET',
+        cache: 'no-store'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          // Extrair empresas dos dados reais
+          const { extractCompaniesFromTrackings } = await import('@/lib/auth');
+          const extractedCompanies = extractCompaniesFromTrackings(result.data);
+          setCompanies(extractedCompanies);
+          
+          if (extractedCompanies.length > 0 && !formData.companySlug) {
+            setFormData(prev => ({ ...prev, companySlug: extractedCompanies[0].id }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar empresas:', error);
     }
   };
 
-  const loadCompaniesFromAsana = async () => {
+  // ✅ REDIRECT SE JÁ AUTENTICADO
+  useEffect(() => {
+    if (user && !authLoading) {
+      const redirectTo = searchParams.get('redirect') || '/dashboard';
+      router.push(redirectTo);
+    }
+  }, [user, authLoading, router, searchParams]);
+
+  // ✅ HANDLE FORM SUBMISSION
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!supabaseConfigured) {
+      setError('Sistema não configurado. Configure as variáveis do Supabase primeiro.');
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      console.log('🔍 Carregando empresas do Asana...');
-      setLoading(true);
-      setSystemStatus('checking');
+      if (isSignUp) {
+        // Validações para signup
+        if (!formData.fullName.trim()) {
+          throw new Error('Nome completo é obrigatório');
+        }
+        if (formData.password !== formData.confirmPassword) {
+          throw new Error('Senhas não coincidem');
+        }
+        if (formData.password.length < 6) {
+          throw new Error('Senha deve ter pelo menos 6 caracteres');
+        }
+        if (!formData.companySlug) {
+          throw new Error('Selecione uma empresa');
+        }
 
-      const response = await fetch('/api/asana/unified', {
-        method: 'GET',
-        cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        await signUp(formData.email, formData.password, formData.companySlug, formData.fullName);
+        setSuccess('Conta criada com sucesso! Verifique seu email para confirmar.');
+        
+        // Auto-switch para login após 3 segundos
+        setTimeout(() => {
+          setIsSignUp(false);
+          setSuccess('');
+        }, 3000);
+      } else {
+        // Login
+        await signIn(formData.email, formData.password);
+        // Redirect é tratado pelo useEffect acima
       }
-
-      const result = await response.json();
-
-      if (!result.success || !result.data || result.data.length === 0) {
-        throw new Error('Nenhum dado retornado da API');
-      }
-
-      console.log(`📊 ${result.data.length} trackings recebidos do Asana`);
-
-      // Extrair empresas dos títulos
-      const { extractCompaniesFromTrackings } = await import('@/lib/auth');
-      const extractedCompanies = extractCompaniesFromTrackings(result.data);
-      
-      if (extractedCompanies.length === 0) {
-        throw new Error('Nenhuma empresa encontrada nos dados');
-      }
-
-      console.log(`✅ ${extractedCompanies.length} empresas extraídas`);
-      setCompanies(extractedCompanies);
-      setSystemStatus('online');
-
-    } catch (error) {
-      console.error('❌ Erro ao carregar empresas:', error);
-      setError(error instanceof Error ? error.message : 'Erro desconhecido');
-      setSystemStatus('offline');
-      
-      // Fallback: usar empresas padrão
-      const fallbackCompanies = [
-        { id: 'wcb', name: 'WCB', displayName: 'WCB' },
-        { id: 'agrivale', name: 'AGRIVALE', displayName: 'Agrivale' },
-        { id: 'naturally', name: 'NATURALLY', displayName: 'Naturally' },
-        { id: 'amz', name: 'AMZ', displayName: 'AMZ' }
-      ];
-      setCompanies(fallbackCompanies);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCompanySelection = (company: Company) => {
-    try {
-      console.log('🏢 Empresa selecionada:', company.name);
-      setCurrentCompany(company);
-      router.push('/dashboard');
-    } catch (error) {
-      console.error('❌ Erro na seleção:', error);
-      setError('Erro ao selecionar empresa. Tente novamente.');
-    }
+  // ✅ HANDLE INPUT CHANGES
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (error) setError(''); // Clear error on input change
   };
 
-  if (loading) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-purple-700">
-        <div className="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full mx-4">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Carregando Sistema</h2>
-            <p className="text-gray-600">Conectando com Asana...</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-[#b51c26] mx-auto mb-4" />
+          <p className="text-gray-400">Verificando autenticação...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ SE SUPABASE NÃO CONFIGURADO
+  if (!supabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-2xl">
+          <div className="text-center mb-8">
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
+              <Settings className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">
+              Configuração Necessária
+            </h1>
+            <p className="text-gray-400">
+              Configure o Supabase para habilitar autenticação
+            </p>
+          </div>
+
+          <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-8 shadow-2xl">
+            <div className="space-y-6">
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
+                <div className="flex items-center space-x-3 mb-3">
+                  <AlertCircle className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-amber-400 font-semibold">Passos para Configuração</h3>
+                </div>
+                <ol className="text-sm text-gray-300 space-y-2 ml-8 list-decimal">
+                  <li>Crie um projeto no <a href="https://supabase.com" target="_blank" className="text-blue-400 hover:underline">Supabase</a></li>
+                  <li>Configure as variáveis no arquivo <code className="bg-gray-800 px-2 py-1 rounded">.env.local</code>:</li>
+                </ol>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-xl p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-400 text-sm">Arquivo: .env.local</span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(`NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
+SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key`)}
+                    className="text-blue-400 hover:text-blue-300 text-sm flex items-center space-x-1"
+                  >
+                    <span>Copiar</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                </div>
+                <pre className="text-gray-300 text-sm overflow-x-auto">
+{`NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anonima_do_supabase
+SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key`}
+                </pre>
+              </div>
+
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                <div className="flex items-center space-x-3 mb-3">
+                  <CheckCircle className="w-5 h-5 text-blue-400" />
+                  <h3 className="text-blue-400 font-semibold">Estado Atual</h3>
+                </div>
+                <div className="text-sm text-gray-300 space-y-2">
+                  <p>✅ API Asana funcionando</p>
+                  <p>✅ {companies.length} empresas encontradas: {companies.map(c => c.displayName).join(', ')}</p>
+                  <p>❌ Supabase não configurado</p>
+                  <p>❌ Autenticação não disponível</p>
+                </div>
+              </div>
+
+              <div className="text-center pt-4">
+                <p className="text-gray-400 text-sm mb-4">
+                  Após configurar, reinicie o servidor e recarregue a página
+                </p>
+                <div className="flex space-x-3 justify-center">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-6 py-3 bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white rounded-xl font-semibold hover:scale-105 transform transition-all"
+                  >
+                    Recarregar Página
+                  </button>
+                  <a
+                    href="https://supabase.com/dashboard"
+                    target="_blank"
+                    className="px-6 py-3 bg-gray-700 text-white rounded-xl font-semibold hover:bg-gray-600 transition-colors flex items-center space-x-2"
+                  >
+                    <span>Ir ao Supabase</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -108,121 +221,224 @@ export default function CompanySelectionLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-purple-700 p-4">
-      <div className="bg-white rounded-lg shadow-2xl max-w-6xl w-full">
-        
-        {/* Header */}
-        <div className="text-center p-8 border-b border-gray-200">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Sistema de Tracking Marítimo</h1>
-          <p className="text-gray-600">Selecione sua empresa para acessar os processos</p>
-          
-          {/* Status */}
-          <div className={`mt-4 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-            systemStatus === 'online' ? 'bg-green-100 text-green-800' :
-            systemStatus === 'offline' ? 'bg-red-100 text-red-800' :
-            'bg-yellow-100 text-yellow-800'
-          }`}>
-            <span className="mr-2">
-              {systemStatus === 'online' ? '🟢' : 
-               systemStatus === 'offline' ? '🔴' : 
-               '🟡'}
-            </span>
-            <span>
-              {systemStatus === 'online' ? `${companies.length} empresas disponíveis` :
-               systemStatus === 'offline' ? 'Sistema offline - dados limitados' :
-               'Verificando sistema...'}
-            </span>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* ✅ LOGO E HEADER */}
+        <div className="text-center mb-8">
+          <div className="bg-gradient-to-r from-[#b51c26] to-[#dc2626] w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
+            <Building2 className="w-8 h-8 text-white" />
           </div>
+          <h1 className="text-3xl font-bold text-white mb-2">
+            Sistema Marítimo
+          </h1>
+          <p className="text-gray-400">
+            {isSignUp ? 'Criar nova conta' : 'Entre em sua conta'}
+          </p>
         </div>
 
-        {/* Error Message */}
-        {error && (
-          <div className="mx-8 mt-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md">
-            <div className="flex items-center">
-              <span className="mr-2">⚠️</span>
+        {/* ✅ FORM CONTAINER */}
+        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-8 shadow-2xl">
+          {/* ✅ TOGGLE LOGIN/SIGNUP */}
+          <div className="flex bg-gray-800/50 rounded-2xl p-1 mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(false);
+                setError('');
+                setSuccess('');
+              }}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
+                !isSignUp 
+                  ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-lg' 
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <LogIn className="w-4 h-4 inline mr-2" />
+              Entrar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(true);
+                setError('');
+                setSuccess('');
+              }}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
+                isSignUp 
+                  ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-lg' 
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Building2 className="w-4 h-4 inline mr-2" />
+              Criar Conta
+            </button>
+          </div>
+
+          {/* ✅ ALERTS */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex items-center space-x-3">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 mb-6 flex items-center space-x-3">
+              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+              <p className="text-green-400 text-sm">{success}</p>
+            </div>
+          )}
+
+          {/* ✅ FORM */}
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Nome Completo (apenas signup) */}
+            {isSignUp && (
               <div>
-                <strong>Erro:</strong> {error}
-                <button 
-                  onClick={loadCompaniesFromAsana}
-                  className="ml-4 text-red-600 hover:text-red-800 font-medium underline"
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Nome Completo *
+                </label>
+                <input
+                  type="text"
+                  value={formData.fullName}
+                  onChange={(e) => handleInputChange('fullName', e.target.value)}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
+                  placeholder="Seu nome completo"
+                  required={isSignUp}
+                />
+              </div>
+            )}
+
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Email *
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
+                  placeholder="seu@email.com"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Empresa (apenas signup) */}
+            {isSignUp && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Empresa *
+                </label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <select
+                    value={formData.companySlug}
+                    onChange={(e) => handleInputChange('companySlug', e.target.value)}
+                    className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors appearance-none"
+                    required={isSignUp}
+                  >
+                    <option value="" className="bg-gray-800">Selecione uma empresa</option>
+                    {companies.map(company => (
+                      <option key={company.id} value={company.id} className="bg-gray-800">
+                        {company.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {companies.length === 0 && (
+                  <p className="text-gray-400 text-xs mt-1">
+                    Carregando empresas do Asana...
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Senha */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Senha *
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-12 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
+                  placeholder={isSignUp ? 'Mínimo 6 caracteres' : 'Sua senha'}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
                 >
-                  Tentar novamente
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Companies Grid */}
-        <div className="p-8">
-          {companies.length > 0 ? (
-            <>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6 text-center">
-                Empresas Disponíveis ({companies.length})
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                {companies.map((company) => (
-                  <CompanyCard
-                    key={company.id}
-                    company={company}
-                    onClick={() => handleCompanySelection(company)}
+            {/* Confirmar Senha (apenas signup) */}
+            {isSignUp && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Confirmar Senha *
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.confirmPassword}
+                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                    className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-[#b51c26] focus:ring-1 focus:ring-[#b51c26] transition-colors"
+                    placeholder="Confirme sua senha"
+                    required={isSignUp}
                   />
-                ))}
+                </div>
               </div>
-            </>
-          ) : (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">🏢</div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Nenhuma Empresa Encontrada</h3>
-              <p className="text-gray-600 mb-4">Erro ao conectar com o sistema.</p>
-              <button
-                onClick={loadCompaniesFromAsana}
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
-              >
-                🔄 Recarregar
-              </button>
-            </div>
-          )}
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-[#b51c26] via-[#dc2626] to-[#ef4444] text-white py-4 px-6 rounded-xl font-semibold shadow-2xl hover:shadow-[#b51c26]/25 hover:scale-105 transform transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              {loading ? (
+                <div className="flex items-center justify-center space-x-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>{isSignUp ? 'Criando conta...' : 'Entrando...'}</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center space-x-2">
+                  {isSignUp ? <Building2 className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
+                  <span>{isSignUp ? 'Criar Conta' : 'Entrar'}</span>
+                </div>
+              )}
+            </button>
+          </form>
+
+          {/* ✅ FOOTER INFO */}
+          <div className="mt-8 pt-6 border-t border-white/10 text-center">
+            <p className="text-gray-400 text-sm">
+              {isSignUp 
+                ? 'Ao criar uma conta, você aceita nossos termos de uso.' 
+                : `${companies.length} empresas disponíveis para acesso`
+              }
+            </p>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-gray-200 p-6 text-center text-sm text-gray-500">
-          <p>Sistema integrado com Asana • Dados em tempo real</p>
+        {/* ✅ SYSTEM STATUS */}
+        <div className="text-center mt-6">
+          <p className="text-gray-500 text-xs">
+            Sistema Duri Trading • Supabase Configurado • {companies.length} Empresas
+          </p>
         </div>
       </div>
     </div>
-  );
-}
-
-interface CompanyCardProps {
-  company: Company;
-  onClick: () => void;
-}
-
-function CompanyCard({ company, onClick }: CompanyCardProps) {
-  return (
-    <button
-      onClick={onClick}
-      className="group bg-white border-2 border-gray-200 rounded-lg p-4 hover:border-blue-500 hover:shadow-md transition-all duration-200 text-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-    >
-      <div className="flex flex-col items-center">
-        {/* Company Icon */}
-        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-          <span className="text-white font-bold text-lg">
-            {company.name.charAt(0)}
-          </span>
-        </div>
-        
-        {/* Company Name */}
-        <h3 className="text-sm font-semibold text-gray-900 group-hover:text-blue-600 leading-tight">
-          {company.name}
-        </h3>
-        
-        {/* Hover Indicator */}
-        <div className="mt-2 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-          <span className="text-xs font-medium">Acessar →</span>
-        </div>
-      </div>
-    </button>
   );
 }
