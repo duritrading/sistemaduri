@@ -1,4 +1,4 @@
-// src/app/admin/users/page.tsx - COM SINCRONIZAÇÃO DE EMPRESAS DO ASANA
+// src/app/admin/users/page.tsx - COM API CORRIGIDA E TRATAMENTO DE ERROS
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -22,7 +22,8 @@ import {
   Trash2,
   RefreshCw,
   Database,
-  Zap
+  Zap,
+  Bug
 } from 'lucide-react';
 
 interface Company {
@@ -62,6 +63,7 @@ export default function AdminUsersPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   const [form, setForm] = useState({
     email: '',
@@ -100,25 +102,32 @@ export default function AdminUsersPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setDebugInfo('🔄 Carregando dados...');
       
       const { supabase } = await import('@/lib/supabase');
       
       // Carregar empresas do banco
+      setDebugInfo('📊 Buscando empresas no banco...');
       const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
         .select('*')
         .eq('active', true)
         .order('display_name');
 
-      if (companiesError) throw companiesError;
+      if (companiesError) {
+        setDebugInfo(`❌ Erro ao buscar empresas: ${companiesError.message}`);
+        throw companiesError;
+      }
       
       setCompanies(companiesData || []);
+      setDebugInfo(`✅ Encontradas ${companiesData?.length || 0} empresas no banco`);
       
       if (companiesData && companiesData.length > 0 && !form.companyId) {
         setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
       }
 
       // Carregar usuários existentes
+      setDebugInfo('👥 Buscando usuários...');
       const { data: usersData, error: usersError } = await supabase
         .from('user_profiles')
         .select(`
@@ -133,50 +142,79 @@ export default function AdminUsersPage() {
         `)
         .order('created_at', { ascending: false });
 
-      if (usersError) throw usersError;
+      if (usersError) {
+        setDebugInfo(`❌ Erro ao buscar usuários: ${usersError.message}`);
+        throw usersError;
+      }
       
       setUsers(usersData || []);
+      setDebugInfo(`✅ Encontrados ${usersData?.length || 0} usuários`);
 
       // Verificar status de sincronização
       await checkSyncStatus();
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+      const errorMsg = err instanceof Error ? err.message : 'Erro ao carregar dados';
+      setError(errorMsg);
+      setDebugInfo(`❌ Erro final: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO
+  // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO COM DEBUGGING
   const checkSyncStatus = async () => {
     try {
-      const response = await fetch('/api/admin/sync-companies');
-      if (response.ok) {
-        const status = await response.json();
-        setSyncStatus(status);
+      setDebugInfo('🔍 Verificando status de sincronização...');
+      
+      const response = await fetch('/api/sync-companies', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      setDebugInfo(`📡 Response status: ${response.status} ${response.statusText}`);
+
+      if (!response.ok) {
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
       }
+      
+      const status = await response.json();
+      setSyncStatus(status);
+      setDebugInfo(`✅ Status: ${status.companiesInDatabase} no banco, ${status.companiesInAsana} no Asana`);
+      
     } catch (error) {
       console.error('Erro ao verificar status de sincronização:', error);
+      setDebugInfo(`❌ Erro no status: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
   };
 
-  // ✅ SINCRONIZAR EMPRESAS DO ASANA
+  // ✅ SINCRONIZAR EMPRESAS COM DEBUGGING DETALHADO
   const handleSyncCompanies = async () => {
     setSyncing(true);
     setError('');
     setSuccess('');
+    setDebugInfo('🔄 Iniciando sincronização...');
 
     try {
-      console.log('🔄 Iniciando sincronização...');
-      
-      const response = await fetch('/api/admin/sync-companies', {
+      const response = await fetch('/api/sync-companies', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         }
       });
 
+      setDebugInfo(`📡 Sync response: ${response.status} ${response.statusText}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setDebugInfo(`❌ Erro na resposta: ${errorText}`);
+        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+      }
+
       const result = await response.json();
+      setDebugInfo(`📊 Resultado: ${JSON.stringify(result.stats || {}, null, 2)}`);
 
       if (!result.success) {
         throw new Error(result.error || 'Erro na sincronização');
@@ -192,17 +230,21 @@ export default function AdminUsersPage() {
 
 As empresas do Asana foram sincronizadas com sucesso!`);
 
+      setDebugInfo('✅ Sincronização concluída com sucesso');
+
       // Recarregar dados
       await loadData();
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao sincronizar empresas');
+      const errorMsg = err instanceof Error ? err.message : 'Erro ao sincronizar empresas';
+      setError(errorMsg);
+      setDebugInfo(`❌ Erro na sincronização: ${errorMsg}`);
     } finally {
       setSyncing(false);
     }
   };
 
-  // ✅ CRIAR USUÁRIO USANDO ADMIN API
+  // ✅ CRIAR USUÁRIO
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -271,13 +313,6 @@ O usuário já pode fazer login no sistema.`);
     }
   };
 
-  // ✅ COPIAR CREDENCIAIS
-  const copyCredentials = (email: string, password: string) => {
-    const text = `Email: ${email}\nSenha: ${password}\nLink: ${window.location.origin}/login`;
-    navigator.clipboard.writeText(text);
-    alert('Credenciais copiadas para o clipboard!');
-  };
-
   // ✅ LOADING
   if (loading) {
     return (
@@ -285,6 +320,9 @@ O usuário já pode fazer login no sistema.`);
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-gray-600">Carregando administração...</p>
+          {debugInfo && (
+            <p className="text-sm text-gray-500 mt-2">{debugInfo}</p>
+          )}
         </div>
       </div>
     );
@@ -366,6 +404,19 @@ O usuário já pode fazer login no sistema.`);
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
+        {/* ✅ DEBUG INFO EM DEV */}
+        {process.env.NODE_ENV === 'development' && debugInfo && (
+          <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <Bug size={20} className="text-gray-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-gray-800 font-medium text-sm">Debug Info</p>
+                <p className="text-gray-700 text-xs mt-1 font-mono">{debugInfo}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ✅ ALERTA DE SINCRONIZAÇÃO */}
         {syncStatus?.needsSync && (
           <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-3">
