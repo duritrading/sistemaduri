@@ -1,4 +1,4 @@
-// src/components/ChartsSection.tsx - VERSÃO CORRIGIDA PARA EXIBIÇÃO DOS DADOS
+// src/components/ChartsSection.tsx - CORREÇÃO LEGENDA + DEBUG ÓRGÃOS
 'use client';
 
 import { useMemo } from 'react';
@@ -57,119 +57,49 @@ const CHART_COLORS = [
   '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
 ];
 
-// ✅ FUNÇÕES DE EXTRAÇÃO MELHORADAS
-const extractDataFromAllSources = (tracking: Tracking, fieldName: string): string | null => {
-  // Lista COMPLETA de possíveis fontes para cada campo
-  const fieldMappings: Record<string, string[]> = {
-    'Exportador': ['Exportador', 'EXPORTADOR', 'exportador'],
-    'PRODUTO': ['PRODUTO', 'Produto', 'produto', 'PRODUCTS', 'Products'],
-    'CIA DE TRANSPORTE': ['CIA DE TRANSPORTE', 'Cia de Transporte', 'COMPANHIA', 'Companhia'],
-    'Órgãos Anuentes': ['Órgãos Anuentes', 'ÓRGÃOS ANUENTES', 'Orgaos Anuentes', 'ORGAOS_ANUENTES'],
-    'ETD': ['ETD', 'etd', 'Data ETD', 'DATA_ETD']
-  };
-
-  const possibleFields = fieldMappings[fieldName] || [fieldName];
+// ✅ FUNÇÃO DE PARSING DE DATAS ETD
+const parseETDDate = (etdString: string): { year: number; month: number } | null => {
+  if (!etdString || typeof etdString !== 'string') return null;
   
-  // 1. Tentar customFields primeiro (todas as variações)
-  for (const field of possibleFields) {
-    const value = tracking.customFields?.[field];
-    if (value && typeof value === 'string' && value.trim() !== '') {
-      return value.trim();
-    }
-  }
-
-  // 2. Tentar campos estruturados
-  switch (fieldName) {
-    case 'Exportador':
-      return tracking.transport?.exporter;
-    case 'CIA DE TRANSPORTE':
-      return tracking.transport?.company;
-    case 'ETD':
-      return tracking.schedule?.etd;
-  }
-
-  return null;
-};
-
-const extractArrayFromAllSources = (tracking: Tracking, fieldName: string): string[] => {
-  // 1. Tentar arrays estruturados primeiro
-  switch (fieldName) {
-    case 'PRODUTO':
-      if (tracking.transport?.products && tracking.transport.products.length > 0) {
-        return tracking.transport.products.filter(p => p && p.trim() !== '');
-      }
-      break;
-    case 'Órgãos Anuentes':
-      if (tracking.regulatory?.orgaosAnuentes && tracking.regulatory.orgaosAnuentes.length > 0) {
-        return tracking.regulatory.orgaosAnuentes.filter(o => o && o.trim() !== '');
-      }
-      break;
-  }
-
-  // 2. Tentar extrair de customFields como string
-  const stringValue = extractDataFromAllSources(tracking, fieldName);
-  if (stringValue) {
-    return stringValue
-      .split(/[,;|\/]/)  // Split por múltiplos separadores
-      .map(item => item.trim())
-      .filter(item => item !== '' && item.length > 1); // Filtrar strings muito curtas
-  }
-
-  return [];
-};
-
-const parseETDDate = (etdString: string | null): { year: number; month: number } | null => {
-  if (!etdString) return null;
+  const cleanString = etdString.trim();
   
-  try {
-    // Limpar string de espaços e caracteres especiais
-    const cleanEtd = etdString.trim().replace(/[^\d\/\-\.]/g, '');
-    
-    // Múltiplos formatos de data
-    const dateFormats = [
-      /^(\d{4})-(\d{1,2})-(\d{1,2})$/,    // YYYY-MM-DD
-      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,  // DD/MM/YYYY
-      /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,  // YYYY/MM/DD
-      /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/,  // DD.MM.YYYY
-      /^(\d{4})\.(\d{1,2})\.(\d{1,2})$/   // YYYY.MM.DD
-    ];
-    
-    for (let i = 0; i < dateFormats.length; i++) {
-      const format = dateFormats[i];
-      const match = cleanEtd.match(format);
-      if (match) {
-        let year, month;
-        
-        if (i === 1 || i === 3) { // DD/MM/YYYY ou DD.MM.YYYY
-          year = parseInt(match[3]);
-          month = parseInt(match[2]);
-        } else { // YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
-          year = parseInt(match[1]);
-          month = parseInt(match[2]);
-        }
-        
-        // Validar ano e mês
-        if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12) {
-          return { year, month };
+  const patterns = [
+    /(\d{4})-(\d{1,2})-(\d{1,2})/, // YYYY-MM-DD
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // DD/MM/YYYY ou MM/DD/YYYY
+    /(\d{1,2})-(\d{1,2})-(\d{4})/, // DD-MM-YYYY
+    /(\d{4})(\d{2})(\d{2})/ // YYYYMMDD
+  ];
+  
+  for (const pattern of patterns) {
+    const match = cleanString.match(pattern);
+    if (match) {
+      let year, month;
+      
+      if (pattern.source.includes('(\\d{4})-(\\d{1,2})') || pattern.source.includes('(\\d{4})(\\d{2})')) {
+        year = parseInt(match[1]);
+        month = parseInt(match[2]);
+      } else {
+        const yearIndex = match.findIndex(m => m && m.length === 4);
+        if (yearIndex > 0) {
+          year = parseInt(match[yearIndex]);
+          month = parseInt(match[1]);
         }
       }
+      
+      if (year && month && year >= 2020 && year <= 2030 && month >= 1 && month <= 12) {
+        return { year, month };
+      }
     }
-    
-    // Fallback: tentar parsing direto
-    const date = new Date(etdString);
-    if (!isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2030) {
-      return { year: date.getFullYear(), month: date.getMonth() + 1 };
-    }
-  } catch (error) {
-    // Silent fail
   }
   
   return null;
 };
 
 export function ChartsSection({ trackings }: ChartsSectionProps) {
-  // ✅ Processamento ROBUSTO dos dados para gráficos
+  // ✅ DADOS DOS GRÁFICOS
   const chartData = useMemo(() => {
+    console.log('🔍 Processando dados para gráficos:', trackings.length, 'trackings');
+
     if (!trackings || trackings.length === 0) {
       return {
         exporters: [],
@@ -180,99 +110,63 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       };
     }
 
-    // ✅ GRÁFICO 1: Exportadores com extração COMPLETA
+    // ✅ GRÁFICO 1: Exportadores
     const exporterCounts = new Map<string, number>();
     let exportersFound = 0;
     
-    trackings.forEach(tracking => {
-      const exporter = extractDataFromAllSources(tracking, 'Exportador');
-      if (exporter) {
+    trackings.forEach((tracking, index) => {
+      const sources = [
+        tracking.transport?.exporter,
+        tracking.customFields?.['Exportador'],
+        tracking.customFields?.['EXPORTADOR'],
+        tracking.customFields?.['exportador']
+      ].filter(Boolean);
+      
+      const exporter = sources[0];
+      
+      if (exporter && typeof exporter === 'string' && exporter.trim() !== '') {
         exportersFound++;
-        const current = exporterCounts.get(exporter) || 0;
-        exporterCounts.set(exporter, current + 1);
+        const cleanExporter = exporter.trim();
+        const current = exporterCounts.get(cleanExporter) || 0;
+        exporterCounts.set(cleanExporter, current + 1);
+        
+        if (index < 3) {
+          console.log(`📊 Tracking ${index + 1} - Exportador encontrado:`, cleanExporter);
+        }
       }
     });
 
     const exportersData = Array.from(exporterCounts.entries())
       .map(([name, count]) => ({
-        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
+        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
         fullName: name,
-        count,
-        percentage: ((count / trackings.length) * 100).toFixed(1)
+        value: count,
+        count: count
       }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+      .slice(0, 8);
 
-    // ✅ GRÁFICO 2: Produtos com extração ROBUSTA
+    // ✅ GRÁFICO 2: Produtos
     const productCounts = new Map<string, number>();
     let productsFound = 0;
     
     trackings.forEach(tracking => {
-      const products = extractArrayFromAllSources(tracking, 'PRODUTO');
-      if (products.length > 0) {
-        productsFound++;
+      const products = tracking.transport?.products;
+      if (Array.isArray(products) && products.length > 0) {
         products.forEach(product => {
-          if (product && product.length > 1) { // Filtrar produtos muito curtos
-            const current = productCounts.get(product) || 0;
-            productCounts.set(product, current + 1);
+          if (product && typeof product === 'string' && product.trim() !== '') {
+            productsFound++;
+            const cleanProduct = product.trim();
+            const current = productCounts.get(cleanProduct) || 0;
+            productCounts.set(cleanProduct, current + 1);
           }
         });
       }
     });
 
     const productsData = Array.from(productCounts.entries())
-      .map(([name, count]) => ({
-        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
-        fullName: name,
-        count,
-        percentage: ((count / trackings.length) * 100).toFixed(1)
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-
-    // ✅ GRÁFICO 3: Companhias de Transporte
-    const transportCounts = new Map<string, number>();
-    let transportFound = 0;
-    
-    trackings.forEach(tracking => {
-      const company = extractDataFromAllSources(tracking, 'CIA DE TRANSPORTE');
-      if (company) {
-        transportFound++;
-        const current = transportCounts.get(company) || 0;
-        transportCounts.set(company, current + 1);
-      }
-    });
-
-    const transportCompaniesData = Array.from(transportCounts.entries())
-      .map(([name, count]) => ({
-        name: name.length > 25 ? name.substring(0, 25) + '...' : name,
-        fullName: name,
-        count,
-        percentage: ((count / trackings.length) * 100).toFixed(1)
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-
-    // ✅ GRÁFICO 4: Órgãos Anuentes com EXTRAÇÃO MELHORADA
-    const orgaosCounts = new Map<string, number>();
-    let orgaosFound = 0;
-    
-    trackings.forEach(tracking => {
-      const orgaos = extractArrayFromAllSources(tracking, 'Órgãos Anuentes');
-      if (orgaos.length > 0) {
-        orgaosFound++;
-        orgaos.forEach(orgao => {
-          if (orgao && orgao.length > 2) { // Filtrar órgãos muito curtos
-            const current = orgaosCounts.get(orgao) || 0;
-            orgaosCounts.set(orgao, current + 1);
-          }
-        });
-      }
-    });
-
-    const orgaosAnuentesData = Array.from(orgaosCounts.entries())
       .map(([name, value]) => ({
-        name: name.length > 20 ? name.substring(0, 20) + '...' : name,
+        name: name.length > 25 ? name.substring(0, 25) + '...' : name, // ✅ Mais espaço para labels internas
         fullName: name,
         value,
         percentage: ((value / trackings.length) * 100).toFixed(1)
@@ -280,12 +174,196 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    // ✅ GRÁFICO 5: Timeline ETD MELHORADA
+    // ✅ GRÁFICO 3: Companhias de Transporte
+    const transportCounts = new Map<string, number>();
+    let transportFound = 0;
+    
+    trackings.forEach(tracking => {
+      const company = tracking.transport?.company;
+      if (company && typeof company === 'string' && company.trim() !== '') {
+        transportFound++;
+        const cleanCompany = company.trim();
+        const current = transportCounts.get(cleanCompany) || 0;
+        transportCounts.set(cleanCompany, current + 1);
+      }
+    });
+
+    const transportCompaniesData = Array.from(transportCounts.entries())
+      .map(([name, count]) => ({
+        name: name.length > 15 ? name.substring(0, 15) + '...' : name,
+        fullName: name,
+        count,
+        percentage: ((count / trackings.length) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    // 🚨 DEBUG ESPECÍFICO PARA TRACKINGS 657, 658, 659
+    console.log('🔍 INVESTIGAÇÃO ESPECÍFICA - Trackings mencionados:');
+    const targetTrackings = trackings.filter(t => 
+      t.title.includes('657') || 
+      t.title.includes('658') || 
+      t.title.includes('659')
+    );
+    
+    console.log(`📊 Encontrados ${targetTrackings.length} trackings alvo de ${trackings.length} total`);
+    
+    targetTrackings.forEach((tracking, index) => {
+      console.log(`\n🎯 ANÁLISE DETALHADA - ${tracking.title}:`);
+      console.log('  📋 CustomFields COMPLETO:', tracking.customFields);
+      console.log('  📝 Chaves disponíveis:', Object.keys(tracking.customFields || {}));
+      console.log('  🔍 Regulatory:', tracking.regulatory);
+      
+      // Buscar EXATAMENTE o campo "Orgãos Anuentes"
+      const orgaosExato = tracking.customFields?.['Orgãos Anuentes'];
+      console.log('  ✅ Campo exato "Orgãos Anuentes":', orgaosExato);
+      
+      // Buscar variações
+      const variacoes = {
+        'Orgãos Anuentes': tracking.customFields?.['Orgãos Anuentes'],
+        'ORGÃOS ANUENTES': tracking.customFields?.['ORGÃOS ANUENTES'],
+        'Órgãos Anuentes': tracking.customFields?.['Órgãos Anuentes'],
+        'Orgaos Anuentes': tracking.customFields?.['Orgaos Anuentes']
+      };
+      console.log('  🔄 Variações testadas:', variacoes);
+      
+      // Buscar campos relacionados
+      const camposRelacionados = Object.keys(tracking.customFields || {})
+        .filter(key => 
+          key.toLowerCase().includes('orgao') || 
+          key.toLowerCase().includes('órgão') ||
+          key.toLowerCase().includes('anuente') ||
+          key.toLowerCase().includes('anvisa') ||
+          key.toLowerCase().includes('mapa')
+        );
+      
+      if (camposRelacionados.length > 0) {
+        console.log('  ✅ Campos relacionados encontrados:', camposRelacionados);
+        camposRelacionados.forEach(campo => {
+          console.log(`    - ${campo}:`, tracking.customFields?.[campo]);
+        });
+      } else {
+        console.log('  ❌ NENHUM campo relacionado a órgãos encontrado!');
+        console.log('  📝 TODOS os 12 campos:', Object.keys(tracking.customFields || {}));
+      }
+    });
+    const orgaosCounts = new Map<string, number>();
+    let orgaosFound = 0;
+    let trackingsWithOrgaos = 0;
+    let trackingsWithoutOrgaos = 0;
+    
+    trackings.forEach((tracking, index) => {
+      // Debug expandido de TODOS os trackings que tenham o campo
+      const orgaosFieldValue = tracking.customFields?.['Orgãos Anuentes'];
+      
+      if (orgaosFieldValue) {
+        trackingsWithOrgaos++;
+        console.log(`✅ Tracking ${index + 1} - TEM Órgãos Anuentes:`, {
+          title: tracking.title.substring(0, 50),
+          orgaosValue: orgaosFieldValue,
+          orgaosType: typeof orgaosFieldValue
+        });
+      } else {
+        trackingsWithoutOrgaos++;
+        // Log apenas primeiros 5 sem o campo para não poluir console
+        if (trackingsWithoutOrgaos <= 5) {
+          console.log(`❌ Tracking ${index + 1} - SEM Órgãos Anuentes:`, {
+            title: tracking.title.substring(0, 50),
+            allFields: Object.keys(tracking.customFields || {}).join(', ')
+          });
+        }
+      }
+      
+      // ✅ BUSCA COM NOME EXATO DO ASANA: "Orgãos Anuentes"
+      const possibleFieldNames = [
+        'Orgãos Anuentes',      // ✅ CAMPO EXATO DO ASANA
+        'ORGÃOS ANUENTES',      // ✅ Maiúscula 
+        'Órgãos Anuentes',      // ✅ Variação comum
+        'ÓRGÃOS ANUENTES', 
+        'Orgaos Anuentes',
+        'ORGAOS ANUENTES',
+        'Órgão Anuente',
+        'ORGAO ANUENTE',
+        'Orgão',
+        'ORGAO',
+        'Anuentes',
+        'ANUENTES'
+      ];
+      
+      // Buscar por qualquer campo que contenha "orgao" ou "anuente"
+      const orgaoFields = Object.keys(tracking.customFields || {}).filter(key => 
+        key.toLowerCase().includes('orgao') || 
+        key.toLowerCase().includes('órgão') ||
+        key.toLowerCase().includes('anuente')
+      );
+      
+      if (index < 3 && orgaoFields.length > 0) {
+        console.log(`🔍 Campos relacionados a órgãos encontrados:`, orgaoFields);
+        orgaoFields.forEach(field => {
+          console.log(`  - ${field}:`, tracking.customFields[field]);
+        });
+      }
+      
+      // Tentar extrair de múltiplas fontes
+      const sources = [
+        tracking.regulatory?.orgaosAnuentes,
+        ...possibleFieldNames.map(field => tracking.customFields?.[field]),
+        ...orgaoFields.map(field => tracking.customFields?.[field])
+      ].filter(source => source !== undefined && source !== null);
+      
+      let foundOrgaos = false;
+      
+      for (const source of sources) {
+        if (Array.isArray(source) && source.length > 0) {
+          source.forEach(orgao => {
+            if (orgao && typeof orgao === 'string' && orgao.trim() !== '') {
+              foundOrgaos = true;
+              orgaosFound++;
+              const cleanOrgao = orgao.trim();
+              const current = orgaosCounts.get(cleanOrgao) || 0;
+              orgaosCounts.set(cleanOrgao, current + 1);
+            }
+          });
+          break;
+        } else if (typeof source === 'string' && source.trim() !== '') {
+          const orgaos = source.split(/[,;|]/).map(o => o.trim()).filter(o => o !== '');
+          if (orgaos.length > 0) {
+            foundOrgaos = true;
+            orgaos.forEach(orgao => {
+              orgaosFound++;
+              const current = orgaosCounts.get(orgao) || 0;
+              orgaosCounts.set(orgao, current + 1);
+            });
+            break;
+          }
+        }
+      }
+    });
+
+    const orgaosAnuentesData = Array.from(orgaosCounts.entries())
+      .map(([name, value]) => ({
+        name: name.length > 18 ? name.substring(0, 18) + '...' : name,
+        fullName: name,
+        value,
+        percentage: ((value / trackings.length) * 100).toFixed(1)
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+
+    console.log('📊 Órgãos Anuentes RESULTADO FINAL:', {
+      found: orgaosFound,
+      unique: orgaosCounts.size,
+      finalData: orgaosAnuentesData.length,
+      trackingsComDados: trackingsWithOrgaos,
+      percentual: ((trackingsWithOrgaos / trackings.length) * 100).toFixed(1) + '%'
+    });
+
+    // ✅ GRÁFICO 5: Timeline ETD
     const monthCounts = new Map<string, number>();
     let etdFound = 0;
     
     trackings.forEach(tracking => {
-      const etdString = extractDataFromAllSources(tracking, 'ETD');
+      const etdString = tracking.schedule?.etd;
       if (etdString) {
         const parsedDate = parseETDDate(etdString);
         if (parsedDate) {
@@ -313,23 +391,6 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => a.month.localeCompare(b.month))
       .slice(-12);
 
-    // ✅ Debug info para desenvolvimento
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📊 Charts Data Debug:', {
-        total: trackings.length,
-        exportersFound,
-        productsFound,
-        transportFound,
-        orgaosFound,
-        etdFound,
-        exportersData: exportersData.length,
-        productsData: productsData.length,
-        transportData: transportCompaniesData.length,
-        orgaosData: orgaosAnuentesData.length,
-        etdData: etdTimelineData.length
-      });
-    }
-
     return {
       exporters: exportersData,
       products: productsData,
@@ -339,9 +400,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
     };
   }, [trackings]);
 
-  // ✅ Validação de dados sem logs em produção
   const hasData = trackings && trackings.length > 0;
-  const hasChartsData = Object.values(chartData).some(data => data.length > 0);
 
   if (!hasData) {
     return (
@@ -357,26 +416,26 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
 
   return (
     <div className="space-y-6">
-      {/* Status dos dados MELHORADO */}
+      {/* Status dos dados */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-blue-900">Status da Extração de Dados</h3>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-2 text-sm">
               <div className="text-blue-700">
-                <span className="font-medium">Exportadores:</span> {chartData.exporters.length > 0 ? '✅' : '❌'}
+                <span className="font-medium">Exportadores:</span> {chartData.exporters.length > 0 ? '✅' : '❌'} ({chartData.exporters.length})
               </div>
               <div className="text-blue-700">
-                <span className="font-medium">Produtos:</span> {chartData.products.length > 0 ? '✅' : '❌'}
+                <span className="font-medium">Produtos:</span> {chartData.products.length > 0 ? '✅' : '❌'} ({chartData.products.length})
               </div>
               <div className="text-blue-700">
-                <span className="font-medium">Transportes:</span> {chartData.transportCompanies.length > 0 ? '✅' : '❌'}
+                <span className="font-medium">Transportes:</span> {chartData.transportCompanies.length > 0 ? '✅' : '❌'} ({chartData.transportCompanies.length})
               </div>
               <div className="text-blue-700">
-                <span className="font-medium">Órgãos:</span> {chartData.orgaosAnuentes.length > 0 ? '✅' : '❌'}
+                <span className="font-medium">Órgãos:</span> {chartData.orgaosAnuentes.length > 0 ? '✅' : '❌'} ({chartData.orgaosAnuentes.length})
               </div>
               <div className="text-blue-700">
-                <span className="font-medium">ETD:</span> {chartData.etdTimeline.length > 0 ? '✅' : '❌'}
+                <span className="font-medium">ETD:</span> {chartData.etdTimeline.length > 0 ? '✅' : '❌'} ({chartData.etdTimeline.length})
               </div>
             </div>
           </div>
@@ -384,225 +443,204 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
         </div>
       </div>
 
-      {/* Grid de gráficos otimizado */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Gráfico 1: Exportadores */}
+      {/* ✅ LAYOUT OTIMIZADO */}
+      <div className="space-y-6">
+        {/* ✅ PRIMEIRA LINHA: Produtos MAIOR - LEGENDA CORRIGIDA */}
         <div className="bg-white border rounded-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Top Exportadores ({chartData.exporters.length})
-          </h3>
-          {chartData.exporters.length > 0 ? (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData.exporters}
-                  layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis 
-                    dataKey="name" 
-                    type="category" 
-                    width={95} 
-                    fontSize={11}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip 
-                    formatter={(value: any, name: string, props: any) => [
-                      `${value} operações (${props.payload.percentage}%)`,
-                      'Operações'
-                    ]}
-                    labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
-                  />
-                  <Bar dataKey="count" fill="#3B82F6" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-80 flex items-center justify-center text-gray-500">
-              <div className="text-center">
-                <p>Campo 'Exportador' não encontrado</p>
-                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Gráfico 2: Produtos */}
-        <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Top Produtos ({chartData.products.length})
+            Distribuição de Produtos ({chartData.products.length})
           </h3>
           {chartData.products.length > 0 ? (
-            <div className="h-80">
+            <div className="h-96">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData.products}
-                  layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis 
-                    dataKey="name" 
-                    type="category" 
-                    width={95} 
-                    fontSize={11}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip 
-                    formatter={(value: any, name: string, props: any) => [
-                      `${value} operações (${props.payload.percentage}%)`,
-                      'Operações'
-                    ]}
-                    labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
-                  />
-                  <Bar dataKey="count" fill="#10B981" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-80 flex items-center justify-center text-gray-500">
-              <div className="text-center">
-                <p>Campo 'PRODUTO' não encontrado</p>
-                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Gráfico 3: Companhias de Transporte */}
-        <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Companhias de Transporte ({chartData.transportCompanies.length})
-          </h3>
-          {chartData.transportCompanies.length > 0 ? (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData.transportCompanies}
-                  layout="horizontal"
-                  margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis 
-                    dataKey="name" 
-                    type="category" 
-                    width={95} 
-                    fontSize={11}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip 
-                    formatter={(value: any, name: string, props: any) => [
-                      `${value} operações (${props.payload.percentage}%)`,
-                      'Operações'
-                    ]}
-                    labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
-                  />
-                  <Bar dataKey="count" fill="#8B5CF6" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-80 flex items-center justify-center text-gray-500">
-              <div className="text-center">
-                <p>Campo 'CIA DE TRANSPORTE' não encontrado</p>
-                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Gráfico 4: Órgãos Anuentes */}
-        <div className="bg-white border rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Órgãos Anuentes ({chartData.orgaosAnuentes.length})
-          </h3>
-          {chartData.orgaosAnuentes.length > 0 ? (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+                <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                   <Pie
-                    data={chartData.orgaosAnuentes}
+                    data={chartData.products}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percentage }) => `${name}: ${percentage}%`}
-                    outerRadius={100}
+                    label={({ name, percentage }) => `${name}: ${percentage}%`} // ✅ LEGENDA INTERNA COMPLETA
+                    outerRadius={140} // ✅ Aumentado mais ainda
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {chartData.orgaosAnuentes.map((entry, index) => (
+                    {chartData.products.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value: any, name: string, props: any) => [
-                      `${value} operações`,
-                      'Total'
-                    ]}
+                    formatter={(value: any) => [`${value} operações`, 'Total']}
                     labelFormatter={(label: any, payload: any) => payload?.payload?.fullName || label}
                   />
                 </PieChart>
               </ResponsiveContainer>
+              {/* ✅ REMOVIDA A LEGENDA EXTERNA QUE ESTAVA CORTADA */}
             </div>
           ) : (
-            <div className="h-80 flex items-center justify-center text-gray-500">
+            <div className="h-96 flex items-center justify-center text-gray-500">
               <div className="text-center">
-                <p>Campo 'Órgãos Anuentes' não encontrado</p>
-                <p className="text-sm text-gray-400 mt-1">Verifique custom fields no Asana</p>
+                <p>Nenhum produto encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Verifique campo 'PRODUTO' no Asana</p>
               </div>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Gráfico 5: Timeline ETD (linha completa) */}
-      <div className="bg-white border rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Cronograma ETD por Mês ({chartData.etdTimeline.length} meses)
-        </h3>
-        {chartData.etdTimeline.length > 0 ? (
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData.etdTimeline}
-                margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="monthLabel" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={60}
-                  fontSize={12}
-                />
-                <YAxis />
-                <Tooltip 
-                  formatter={(value: any) => [`${value} operações`, 'ETD']}
-                  labelFormatter={(label) => `Mês: ${label}`}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="operacoes" 
-                  stroke="#F59E0B" 
-                  strokeWidth={3}
-                  dot={{ fill: '#F59E0B', strokeWidth: 2, r: 6 }}
-                  name="Operações ETD"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+        {/* ✅ SEGUNDA LINHA: Grid com outros gráficos */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* ✅ GRÁFICO 1: Exportadores */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Top Exportadores ({chartData.exporters.length})
+            </h3>
+            {chartData.exporters.length > 0 ? (
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.exporters}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="name" 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={80}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      formatter={(value: any) => [`${value} operações`, 'Total']}
+                      labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
+                    />
+                    <Bar dataKey="count" fill="#10B981" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <p>Nenhum exportador encontrado</p>
+                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'Exportador' no Asana</p>
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="h-80 flex items-center justify-center text-gray-500">
-            <div className="text-center">
-              <p>Campo 'ETD' não encontrado</p>
-              <p className="text-sm text-gray-400 mt-1">Verifique datas ETD no Asana</p>
-            </div>
+
+          {/* ✅ GRÁFICO 3: Companhias de Transporte */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Companhias de Transporte ({chartData.transportCompanies.length})
+            </h3>
+            {chartData.transportCompanies.length > 0 ? (
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.transportCompanies}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="name" 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={80}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      formatter={(value: any) => [`${value} operações`, 'Total']}
+                      labelFormatter={(label: any, payload: any) => payload?.[0]?.payload?.fullName || label}
+                    />
+                    <Bar dataKey="count" fill="#8B5CF6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <p>Nenhuma companhia encontrada</p>
+                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'CIA DE TRANSPORTE' no Asana</p>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* ✅ GRÁFICO 4: Órgãos Anuentes - DEBUG MELHORADO */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Órgãos Anuentes ({chartData.orgaosAnuentes.length})
+            </h3>
+            {chartData.orgaosAnuentes.length > 0 ? (
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData.orgaosAnuentes}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percentage }) => `${name}: ${percentage}%`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {chartData.orgaosAnuentes.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: any) => [`${value} operações`, 'Total']}
+                      labelFormatter={(label: any, payload: any) => payload?.payload?.fullName || label}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <p>❌ Poucos trackings com 'Orgãos Anuentes' preenchidos</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Verifique se o campo está preenchido nos trackings do Asana
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2">
+                    📊 Console mostra estatísticas detalhadas
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ✅ GRÁFICO 5: Timeline ETD */}
+          <div className="bg-white border rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Cronograma ETD ({chartData.etdTimeline.length} meses)
+            </h3>
+            {chartData.etdTimeline.length > 0 ? (
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData.etdTimeline}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="monthLabel" />
+                    <YAxis />
+                    <Tooltip 
+                      formatter={(value: any) => [`${value} operações`, 'Total']}
+                      labelFormatter={(label: string) => `Mês: ${label}`}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="operacoes" 
+                      stroke="#10B981" 
+                      strokeWidth={2} 
+                      dot={{ fill: '#10B981' }} 
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <p>Nenhuma data ETD encontrada</p>
+                  <p className="text-sm text-gray-400 mt-1">Verifique campo 'ETD' no Asana</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

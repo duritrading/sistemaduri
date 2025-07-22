@@ -1,17 +1,24 @@
-// src/app/dashboard/page.tsx - Dashboard atualizado com Maritime Dashboard
+// src/app/dashboard/page.tsx - HEADER COM NAVEGAÇÃO INTERNA
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentCompany, clearCurrentCompany, Company } from '@/lib/auth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
+import { LogOut } from 'lucide-react';
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [configStatus, setConfigStatus] = useState<any>(null);
+  const [activeSection, setActiveSection] = useState('resumo'); // Controla seção ativa
   const router = useRouter();
+
+  // ✅ Refs para navegação suave
+  const resumoRef = useRef<HTMLDivElement>(null);
+  const graficosRef = useRef<HTMLDivElement>(null);
+  const operacoesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     initializeDashboard();
@@ -65,10 +72,31 @@ export default function DashboardPage() {
     router.push('/login');
   };
 
-  const handleCompanyChange = () => {
-    console.log('🔄 Alterando empresa - redirecionando para seleção');
-    clearCurrentCompany();
-    router.push('/login');
+  // ✅ Função para navegação suave entre seções
+  const scrollToSection = (section: string) => {
+    setActiveSection(section);
+    
+    let targetRef;
+    switch (section) {
+      case 'resumo':
+        targetRef = resumoRef;
+        break;
+      case 'graficos':
+        targetRef = graficosRef;
+        break;
+      case 'operacoes':
+        targetRef = operacoesRef;
+        break;
+      default:
+        return;
+    }
+
+    if (targetRef.current) {
+      targetRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start' 
+      });
+    }
   };
 
   if (loading) {
@@ -76,7 +104,7 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Inicializando dashboard marítimo...</p>
+          <p className="mt-4 text-gray-600">Inicializando sistema de tracking...</p>
           {company && (
             <p className="text-sm text-gray-500 mt-2">Empresa: {company.displayName}</p>
           )}
@@ -120,28 +148,64 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ Header otimizado com informações da empresa */}
+      {/* ✅ HEADER COM NAVEGAÇÃO INTERNA */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center h-20">
+            {/* ✅ LADO ESQUERDO: Logo + Título */}
             <div className="flex items-center">
+              {/* ✅ AJUSTE 1: Logo maior e na ponta esquerda */}
+              <img 
+                src="/duriLogo.webp" 
+                alt="Duri Trading" 
+                className="h-12 w-auto mr-6" // ✅ Aumentado para h-12 e mais espaçamento (mr-6)
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              {/* ✅ AJUSTE 2: Título mais afastado da logo */}
               <h1 className="text-xl font-semibold text-gray-900">
-                🚢 Sistema de Tracking Marítimo
+                Sistema de Tracking {company.displayName}
               </h1>
-              <div className="ml-4 flex items-center space-x-2">
-                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {company.displayName}
-                </span>
-                <button
-                  onClick={handleCompanyChange}
-                  className="text-xs text-blue-600 hover:text-blue-800"
-                  title="Alterar empresa"
-                >
-                  🔄 Trocar
-                </button>
-              </div>
             </div>
-            
+
+            {/* ✅ MEIO: 3 Botões de Navegação */}
+            <div className="flex items-center space-x-6">
+              <button
+                onClick={() => scrollToSection('resumo')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeSection === 'resumo' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                Resumo Operacional
+              </button>
+              
+              <button
+                onClick={() => scrollToSection('graficos')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeSection === 'graficos' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                Gráficos Operacionais
+              </button>
+              
+              <button
+                onClick={() => scrollToSection('operacoes')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeSection === 'operacoes' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                }`}
+              >
+                Operações
+              </button>
+            </div>
+
+            {/* ✅ LADO DIREITO: Status + Sair */}
             <div className="flex items-center space-x-4">
               {/* ✅ Status da Configuração */}
               {configStatus && (
@@ -150,28 +214,22 @@ export default function DashboardPage() {
                     configStatus.tokenConfigured ? 'bg-green-500' : 'bg-yellow-500'
                   }`}></div>
                   <span className="text-sm text-gray-600">
-                    {configStatus.tokenConfigured ? 'Asana Conectado' : 'Verificando...'}
+                    {configStatus.tokenConfigured ? 'Dados atualizados' : 'Verificando...'}
                   </span>
                 </div>
               )}
               
-              {/* Menu de ações */}
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => window.open('/api/asana/debug', '_blank')}
-                  className="text-sm text-gray-500 hover:text-gray-700"
-                  title="Debug API"
-                >
-                  🔍
-                </button>
-                
-                <button
-                  onClick={handleLogout}
-                  className="text-gray-500 hover:text-gray-700 text-sm font-medium"
-                >
-                  Sair
-                </button>
-              </div>
+              {/* ✅ AJUSTE 3: Botão debug removido completamente */}
+              
+              {/* ✅ Botão sair */}
+              <button
+                onClick={handleLogout}
+                className="flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                title="Sair do sistema"
+              >
+                <LogOut size={16} className="mr-1" />
+                Sair
+              </button>
             </div>
           </div>
         </div>
@@ -208,9 +266,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ✅ Dashboard Marítimo Content */}
+      {/* ✅ Dashboard Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* ✅ NOVO: Maritime Dashboard com filtros + KPI cards */}
+        {/* ✅ Maritime Dashboard com filtros + KPI cards */}
         <MaritimeDashboard companyFilter={company.name} />
       </div>
     </div>
