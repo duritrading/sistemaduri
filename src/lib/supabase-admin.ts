@@ -1,17 +1,59 @@
-// src/lib/supabase-admin.ts - ADMIN API HELPER PARA CRIAR USUÁRIOS
+// src/lib/supabase-admin.ts - ADMIN API COM VALIDAÇÃO ROBUSTA
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ ADMIN CLIENT COM SERVICE ROLE
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || '', // Use SERVICE ROLE para admin
-  {
+// ✅ VALIDAÇÃO EXPLÍCITA DAS VARIÁVEIS
+function validateEnvironment(): { url: string; serviceKey: string } {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  console.log('🔍 Validando variáveis de ambiente...');
+  console.log('URL configurada:', !!url ? '✅' : '❌');
+  console.log('Service Key configurada:', !!serviceKey ? '✅' : '❌');
+
+  if (!url || url.includes('your_') || url === '') {
+    throw new Error(`
+❌ NEXT_PUBLIC_SUPABASE_URL não configurada!
+
+📋 Para corrigir:
+1. Acesse: https://supabase.com/dashboard
+2. Selecione seu projeto
+3. Vá em: Settings > API
+4. Copie o "Project URL"
+5. Adicione no .env.local: NEXT_PUBLIC_SUPABASE_URL=sua_url_aqui
+6. Reinicie: npm run dev
+    `);
+  }
+
+  if (!serviceKey || serviceKey.includes('your_') || serviceKey === '') {
+    throw new Error(`
+❌ SUPABASE_SERVICE_ROLE_KEY não configurada!
+
+📋 Para corrigir:
+1. Acesse: https://supabase.com/dashboard
+2. Selecione seu projeto  
+3. Vá em: Settings > API
+4. Copie a "service_role" key (⚠️ NÃO a anon key!)
+5. Adicione no .env.local: SUPABASE_SERVICE_ROLE_KEY=sua_service_key_aqui
+6. Reinicie: npm run dev
+
+⚠️ IMPORTANTE: Use a SERVICE_ROLE key, não a ANON key!
+    `);
+  }
+
+  return { url, serviceKey };
+}
+
+// ✅ CRIAR CLIENTE ADMIN COM VALIDAÇÃO
+function createAdminClient() {
+  const { url, serviceKey } = validateEnvironment();
+  
+  return createClient(url, serviceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false
     }
-  }
-);
+  });
+}
 
 export interface CreateUserData {
   email: string;
@@ -28,21 +70,55 @@ export interface UserCreationResult {
   error?: string;
 }
 
-// ✅ CRIAR USUÁRIO USANDO ADMIN API
+// ✅ CRIAR USUÁRIO COM VALIDAÇÃO ROBUSTA
 export const createUserWithProfile = async (userData: CreateUserData): Promise<UserCreationResult> => {
   try {
-    console.log('🔄 Criando usuário via Admin API:', userData.email);
+    console.log('🔄 Iniciando criação de usuário:', userData.email);
 
-    // Verificar se service role está configurado
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.includes('your_')) {
-      throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurado no .env.local');
+    // Validar dados de entrada
+    if (!userData.email || !userData.password || !userData.fullName || !userData.companyId) {
+      throw new Error('Todos os campos são obrigatórios');
     }
 
-    // 1. Criar usuário no auth usando Admin API
+    if (userData.password.length < 6) {
+      throw new Error('Senha deve ter pelo menos 6 caracteres');
+    }
+
+    // Criar cliente admin com validação
+    const supabaseAdmin = createAdminClient();
+
+    // 1. Verificar se empresa existe
+    console.log('🔍 Verificando se empresa existe:', userData.companyId);
+    
+    const { data: company, error: companyError } = await supabaseAdmin
+      .from('companies')
+      .select('id, name, display_name')
+      .eq('id', userData.companyId)
+      .single();
+
+    if (companyError || !company) {
+      throw new Error(`Empresa não encontrada: ${userData.companyId}`);
+    }
+
+    console.log('✅ Empresa encontrada:', company.name);
+
+    // 2. Verificar se email já existe
+    console.log('🔍 Verificando se email já existe...');
+    
+    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
+    const emailExists = existingUser.users.some(u => u.email === userData.email);
+    
+    if (emailExists) {
+      throw new Error('Este email já está cadastrado no sistema');
+    }
+
+    // 3. Criar usuário no auth
+    console.log('🔄 Criando usuário no Supabase Auth...');
+    
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: userData.email,
       password: userData.password,
-      email_confirm: true, // Auto-confirmar email
+      email_confirm: true,
       user_metadata: {
         full_name: userData.fullName,
         company_id: userData.companyId,
@@ -51,12 +127,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
     });
 
     if (authError) {
-      console.error('❌ Erro ao criar usuário:', authError);
-      
-      if (authError.message.includes('User already registered')) {
-        throw new Error('Este email já está cadastrado no sistema');
-      }
-      
+      console.error('❌ Erro ao criar usuário no auth:', authError);
       throw new Error(`Erro ao criar usuário: ${authError.message}`);
     }
 
@@ -66,7 +137,9 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
 
     console.log('✅ Usuário criado no auth:', authData.user.id);
 
-    // 2. Criar profile na tabela user_profiles
+    // 4. Criar profile na tabela user_profiles
+    console.log('🔄 Criando profile do usuário...');
+    
     const { data: profileData, error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .upsert({
@@ -90,11 +163,11 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
       .single();
 
     if (profileError) {
-      console.warn('⚠️ Erro ao criar profile (pode já existir):', profileError.message);
-      // Não falhar se o profile já existir pelo trigger
+      console.warn('⚠️ Erro ao criar profile:', profileError.message);
+      // Não falhar completamente se o profile não for criado
     }
 
-    console.log('✅ Profile criado/atualizado:', profileData?.email);
+    console.log('✅ Usuário criado com sucesso:', userData.email);
 
     return {
       success: true,
@@ -103,7 +176,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
     };
 
   } catch (error) {
-    console.error('❌ Erro geral na criação do usuário:', error);
+    console.error('❌ Erro na criação do usuário:', error);
     
     return {
       success: false,
@@ -112,9 +185,11 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
   }
 };
 
-// ✅ LISTAR TODOS OS USUÁRIOS (ADMIN ONLY)
+// ✅ LISTAR TODOS OS USUÁRIOS
 export const getAllUsers = async (): Promise<any[]> => {
   try {
+    const supabaseAdmin = createAdminClient();
+    
     const { data, error } = await supabaseAdmin
       .from('user_profiles')
       .select(`
@@ -141,67 +216,28 @@ export const getAllUsers = async (): Promise<any[]> => {
   }
 };
 
-// ✅ ATUALIZAR USUÁRIO (ADMIN ONLY)
-export const updateUserProfile = async (userId: string, updates: Partial<CreateUserData>): Promise<UserCreationResult> => {
+// ✅ TESTAR CONEXÃO (para debugging)
+export const testAdminConnection = async (): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('user_profiles')
-      .update({
-        full_name: updates.fullName,
-        company_id: updates.companyId,
-        role: updates.role,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId)
-      .select()
-      .single();
-
+    console.log('🔍 Testando conexão admin...');
+    
+    const supabaseAdmin = createAdminClient();
+    
+    // Teste simples: listar usuários
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    
     if (error) {
       throw error;
     }
-
-    return {
-      success: true,
-      profile: data
-    };
+    
+    console.log('✅ Conexão admin funcionando!', `${data.users.length} usuários encontrados`);
+    
+    return { success: true };
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Erro ao atualizar usuário'
+    console.error('❌ Erro na conexão admin:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Erro desconhecido'
     };
   }
 };
-
-// ✅ DESATIVAR USUÁRIO (SOFT DELETE)
-export const deactivateUser = async (userId: string): Promise<UserCreationResult> => {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('user_profiles')
-      .update({ active: false })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    return {
-      success: true,
-      profile: data
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Erro ao desativar usuário'
-    };
-  }
-};
-
-// ✅ VERIFICAR SE SERVICE ROLE ESTÁ CONFIGURADO
-export const checkAdminAccess = (): boolean => {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return !!(serviceKey && !serviceKey.includes('your_') && serviceKey.length > 50);
-};
-
-export default supabaseAdmin;
