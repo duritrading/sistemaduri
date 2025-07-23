@@ -1,5 +1,9 @@
-// src/app/api/asana/comments/route.ts - API PARA BUSCAR COMENTÁRIOS/STORIES DO ASANA
+// src/app/api/asana/comments/route.ts - API PARA BUSCAR COMENTÁRIOS/STORIES DO ASANA - VERCEL BUILD FIX
 import { NextRequest, NextResponse } from 'next/server';
+
+// ✅ FORCE DYNAMIC RENDERING - ESSENCIAL PARA VERCEL BUILD
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 interface AsanaComment {
   gid: string;
