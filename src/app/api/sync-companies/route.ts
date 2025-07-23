@@ -1,4 +1,4 @@
-// src/app/api/sync-companies/route.ts - CORREÇÃO DEFINITIVA DA EXTRAÇÃO
+// src/app/api/sync-companies/route.ts - VERSÃO DEFINITIVA SEM FALLBACKS
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,7 @@ interface SyncResult {
   error?: string;
 }
 
-// ✅ EXTRAÇÃO CORRIGIDA COM MÚLTIPLOS PADRÕES
+// ✅ EXTRAÇÃO DEFINITIVA - SEM FALLBACKS - BASEADA NOS PADRÕES REAIS
 function extractCompanyFromTitle(title: string, debugMode = true): string | null {
   if (!title || typeof title !== 'string') {
     if (debugMode) console.log(`❌ [EXTRACT] Título inválido: ${JSON.stringify(title)}`);
@@ -39,9 +39,9 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
   const cleanTitle = title.trim();
   if (debugMode) console.log(`🔍 [EXTRACT] Analisando: "${cleanTitle}"`);
   
-  // ✅ PADRÃO 1: Número com º + empresa + (opcional detalhes)
-  // Exemplos: "03º ATACAMAX", "13º FIBRASA (VAN DAM - ES)", "14.2º FIBRASA"
-  const pattern1 = /^(\d+(?:\.\d+)?º)\s+([A-Z][A-Z\s&.\-]+?)(?:\s*\(.*\))?$/i;
+  // ✅ PADRÃO 1: Número com º + espaço + empresa + opcional (detalhes)
+  // Captura: "03º ATACAMAX", "13º FIBRASA (VAN DAM - ES)", "14.2 FIBRASA (INTRAVIS)"
+  const pattern1 = /^(\d+(?:\.\d+)?º)\s+([A-Z][A-Z\s&.\-]*[A-Z])(?:\s*\(.*\))?$/i;
   const match1 = cleanTitle.match(pattern1);
   
   if (match1 && match1[2]) {
@@ -53,9 +53,9 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
     }
   }
   
-  // ✅ PADRÃO 2: Apenas número + empresa + (opcional detalhes)  
-  // Exemplos: "57 FREEZER CARNES", "02 FRUTA PLUSS"
-  const pattern2 = /^(\d+(?:\.\d+)?)\s+([A-Z][A-Z\s&.\-]+?)(?:\s*\(.*\))?$/i;
+  // ✅ PADRÃO 2: Apenas número + espaço + empresa + opcional (detalhes)
+  // Captura: "57 FREEZER CARNES", "02 FRUTA PLUSS"
+  const pattern2 = /^(\d+(?:\.\d+)?)\s+([A-Z][A-Z\s&.\-]*[A-Z])(?:\s*\(.*\))?$/i;
   const match2 = cleanTitle.match(pattern2);
   
   if (match2 && match2[2]) {
@@ -67,36 +67,23 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
     }
   }
   
-  // ✅ PADRÃO 3: Apenas empresa + (opcional detalhes)
-  // Exemplos: "DRAWBACK RANCAGUA", "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)", "AGRIVALE (01.25 DRAWBACK)"
-  const pattern3 = /^([A-Z][A-Z\s&.\-]+?)(?:\s*\([^)]*\))?$/i;
+  // ✅ PADRÃO 3: Empresa no início + opcional (detalhes)
+  // Captura: "AGRIVALE (01.25 DRAWBACK)", "EXPOFRUT (IMPORTAÇÃO DIRETA)", "DRAWBACK RANCAGUA"
+  const pattern3 = /^([A-Z][A-Z\s&.\-]*[A-Z])(?:\s*\(.*\))?$/i;
   const match3 = cleanTitle.match(pattern3);
   
   if (match3 && match3[1]) {
     const company = match3[1].trim();
     
-    // Validar que não é apenas um número ou código
+    // Validações específicas para evitar falsos positivos
     if (company.length >= 2 && 
         company.length <= 50 && 
-        !/^\d+[\.\d]*º?$/.test(company) && // Não é só número
-        /[A-Z]{2,}/.test(company)) { // Tem pelo menos 2 letras maiúsculas
+        !/^\d+[\.\d]*º?$/.test(company) && // Não é apenas número
+        /[A-Z]{2,}/.test(company) && // Tem pelo menos 2 letras maiúsculas
+        !company.startsWith('PORCELANOSA') || company === 'PORCELANOSA') { // Aceita PORCELANOSA exato
       
       const formatted = formatCompanyName(company);
       if (debugMode) console.log(`✅ [PATTERN 3] "${cleanTitle}" → "${formatted}"`);
-      return formatted;
-    }
-  }
-  
-  // ✅ PADRÃO 4: Fallback - primeira sequência de letras maiúsculas
-  // Para casos edge que não se encaixam nos padrões acima
-  const pattern4 = /([A-Z]{2,}(?:\s+[A-Z]+)*)/;
-  const match4 = cleanTitle.match(pattern4);
-  
-  if (match4 && match4[1]) {
-    const company = match4[1].trim();
-    if (company.length >= 2 && company.length <= 30) {
-      const formatted = formatCompanyName(company);
-      if (debugMode) console.log(`✅ [PATTERN 4 FALLBACK] "${cleanTitle}" → "${formatted}"`);
       return formatted;
     }
   }
@@ -105,33 +92,33 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
   return null;
 }
 
-// ✅ FORMATAÇÃO MELHORADA DE NOMES
+// ✅ FORMATAÇÃO APRIMORADA SEM FALLBACKS
 function formatCompanyName(name: string): string {
   return name
     .trim()
-    .replace(/\s+/g, ' ') // Múltiplos espaços para um
+    .replace(/\s+/g, ' ') // Normalizar espaços
     .split(/\s+/)
     .map(word => {
-      // Manter siglas completas em maiúsculo (2-4 letras)
+      // Manter siglas conhecidas em maiúsculo (2-4 letras)
       if (word.length <= 4 && /^[A-Z]+$/i.test(word)) {
         return word.toUpperCase();
       }
-      // Capitalizar primeira letra para palavras maiores
+      // Capitalizar palavras normais
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(' ');
 }
 
-// ✅ GERAR SLUG ÚNICO COM TIMESTAMP
+// ✅ GERAR SLUG ÚNICO DETERMINÍSTICO
 function generateUniqueSlug(name: string, existingSlugs: Set<string>): string {
   let baseSlug = name
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .replace(/[^a-z0-9\s]/g, '') // Só letras, números e espaços
+    .replace(/\s+/g, '-') // Espaços para hífens
+    .replace(/-+/g, '-') // Múltiplos hífens para um
+    .replace(/^-|-$/g, ''); // Remove hífens das bordas
   
   if (!baseSlug) {
     baseSlug = 'empresa';
@@ -142,27 +129,27 @@ function generateUniqueSlug(name: string, existingSlugs: Set<string>): string {
     return baseSlug;
   }
   
-  const timestamp = Date.now().toString().slice(-6);
+  // Usar contador simples para duplicatas
   let counter = 1;
-  let uniqueSlug = `${baseSlug}-${timestamp}-${counter}`;
+  let uniqueSlug = `${baseSlug}-${counter}`;
   
   while (existingSlugs.has(uniqueSlug)) {
     counter++;
-    uniqueSlug = `${baseSlug}-${timestamp}-${counter}`;
+    uniqueSlug = `${baseSlug}-${counter}`;
   }
   
   existingSlugs.add(uniqueSlug);
   return uniqueSlug;
 }
 
-// ✅ BUSCAR EMPRESAS COM EXTRAÇÃO CORRIGIDA
+// ✅ BUSCAR EMPRESAS DO ASANA COM EXTRAÇÃO DEFINITIVA
 async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
   companies: AsanaCompany[];
   errorDetails: string[];
   skippedTasks: string[];
   totalTasks: number;
 }> {
-  console.log('🔄 [SYNC] Buscando empresas do Asana com REGEX CORRIGIDA...');
+  console.log('🔄 [SYNC] Buscando empresas do Asana - VERSÃO DEFINITIVA...');
 
   const token = process.env.ASANA_ACCESS_TOKEN;
   if (!token || token.trim() === '' || token.includes('your_')) {
@@ -244,14 +231,14 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     throw new Error('Nenhuma task encontrada no projeto operacional');
   }
 
-  // 4. Extrair empresas com REGEX CORRIGIDA
+  // 4. Extrair empresas com VERSÃO DEFINITIVA
   const companySet = new Set<string>();
   const errorDetails: string[] = [];
   const skippedTasks: string[] = [];
   const existingSlugs = new Set<string>();
   let successfulExtractions = 0;
 
-  console.log('\n🔍 [SYNC] Processando tasks com MÚLTIPLOS PADRÕES...');
+  console.log('\n🔍 [SYNC] Processando tasks com PADRÕES DEFINITIVOS...');
 
   allTasks.forEach((task: any, index) => {
     const taskNumber = index + 1;
@@ -262,7 +249,7 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
       return;
     }
 
-    // Tentar extrair empresa do título com múltiplos padrões
+    // Tentar extrair empresa do título
     const extractedCompany = extractCompanyFromTitle(task.name, true);
     
     if (extractedCompany) {
@@ -274,15 +261,15 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
       console.log(`❌ [TASK ${taskNumber}] "${task.name}" - Nenhum padrão reconhecido`);
     }
 
-    // Verificar custom field "EMPRESA" como backup
+    // Verificar custom field "EMPRESA" (sem fallback, apenas como alternativa)
     if (task.custom_fields && Array.isArray(task.custom_fields)) {
       const empresaField = task.custom_fields.find((field: any) => 
         field.name === 'EMPRESA' && field.display_value
       );
       
-      if (empresaField?.display_value) {
+      if (empresaField?.display_value && !extractedCompany) {
         const fieldCompany = formatCompanyName(empresaField.display_value.toString().trim());
-        if (fieldCompany.length >= 1 && fieldCompany.length <= 50) {
+        if (fieldCompany.length >= 2 && fieldCompany.length <= 50) {
           companySet.add(fieldCompany);
           console.log(`✅ [TASK ${taskNumber}] CUSTOM FIELD: "${fieldCompany}"`);
         }
@@ -290,7 +277,7 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     }
   });
 
-  // 5. Converter para formato final com slugs únicos
+  // 5. Converter para formato final
   const companies: AsanaCompany[] = Array.from(companySet)
     .filter(name => name && name.length > 0)
     .map(name => {
@@ -304,15 +291,15 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  console.log(`\n📊 [SYNC] ESTATÍSTICAS DE EXTRAÇÃO CORRIGIDA:`);
+  console.log(`\n📊 [SYNC] ESTATÍSTICAS DEFINITIVAS:`);
   console.log(`   📋 Tasks processadas: ${allTasks.length}`);
   console.log(`   ✅ Extrações sucessos: ${successfulExtractions}`);
   console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
   console.log(`   ⚠️ Tasks ignoradas: ${skippedTasks.length}`);
   console.log(`   🏢 Empresas únicas: ${companies.length}`);
-  console.log(`   📈 Taxa de sucesso: ${((successfulExtractions / allTasks.length) * 100).toFixed(1)}%`);
+  console.log(`   📈 Taxa de extração: ${((successfulExtractions / allTasks.length) * 100).toFixed(1)}%`);
 
-  console.log(`\n🏢 [SYNC] Empresas extraídas para sincronização:`);
+  console.log(`\n🏢 [SYNC] Empresas extraídas:`);
   companies.forEach((company, i) => {
     console.log(`   ${i + 1}. "${company.name}" (slug: ${company.slug})`);
   });
@@ -327,7 +314,7 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
 
 // ✅ POST - SINCRONIZAÇÃO REPLACE ALL
 export async function POST() {
-  console.log('🚀 [SYNC] Sincronização com REGEX CORRIGIDA...');
+  console.log('🚀 [SYNC] Sincronização DEFINITIVA - SEM FALLBACKS...');
   
   try {
     // 1. Verificar configurações
@@ -344,7 +331,7 @@ export async function POST() {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    // 3. Buscar empresas do Asana com regex corrigida
+    // 3. Buscar empresas do Asana
     const { companies, errorDetails, skippedTasks, totalTasks } = await fetchAsanaCompaniesAndReplaceAll();
     
     console.log(`\n🏢 [SYNC] ${companies.length} empresas prontas para sincronizar`);
@@ -434,7 +421,7 @@ export async function POST() {
     // 5. Resultado final
     const finalResult: SyncResult = {
       success: true,
-      message: `REGEX CORRIGIDA: ${createdCount} criadas, ${reactivatedCount} reativadas, ${deactivatedCount || 0} desativadas, ${errorCount} erros`,
+      message: `VERSÃO DEFINITIVA: ${createdCount} criadas, ${reactivatedCount} reativadas, ${deactivatedCount || 0} desativadas, ${errorCount} erros`,
       stats: {
         totalProcessed: companies.length,
         created: createdCount,
@@ -448,7 +435,7 @@ export async function POST() {
       skippedTasks
     };
 
-    console.log(`\n🎯 [SYNC] RESULTADO FINAL COM REGEX CORRIGIDA:`);
+    console.log(`\n🎯 [SYNC] RESULTADO FINAL DEFINITIVO:`);
     console.log(`   📊 Tasks do Asana: ${totalTasks}`);
     console.log(`   🏢 Empresas extraídas: ${companies.length}`);
     console.log(`   📈 Taxa de extração: ${((companies.length / totalTasks) * 100).toFixed(1)}%`);

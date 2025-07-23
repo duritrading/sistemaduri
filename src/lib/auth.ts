@@ -171,17 +171,6 @@ function extractCompanyFromTracking(tracking: any): string | null {
 }
 
 /**
- * Empresas padrão para fallback (caso a API do Asana falhe)
- */
-export const defaultCompanies: Company[] = [
-  { id: 'wcb', name: 'WCB', displayName: 'WCB' },
-  { id: 'agrivale', name: 'AGRIVALE', displayName: 'Agrivale' },
-  { id: 'naturally', name: 'NATURALLY', displayName: 'Naturally' },
-  { id: 'amz', name: 'AMZ', displayName: 'AMZ' },
-  { id: 'expofrut', name: 'EXPOFRUT', displayName: 'Expofrut' }
-];
-
-/**
  * Obtém estatísticas das empresas nos trackings
  */
 export function getCompanyStats(trackings: any[]): Record<string, number> {
