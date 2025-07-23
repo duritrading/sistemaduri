@@ -245,47 +245,70 @@ As empresas do Asana foram sincronizadas com sucesso!`);
   };
 
   // ✅ CRIAR USUÁRIO
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setCreating(true);
+  // Função handleCreateUser corrigida para usar API route
+// Substitua apenas esta função no arquivo src/app/admin/users/page.tsx
 
-    try {
-      // Validações
-      if (!form.email || !form.password || !form.fullName || !form.companyId) {
-        throw new Error('Todos os campos são obrigatórios');
-      }
-      if (form.password !== form.confirmPassword) {
-        throw new Error('Senhas não coincidem');
-      }
-      if (form.password.length < 6) {
-        throw new Error('Senha deve ter pelo menos 6 caracteres');
-      }
+// ✅ CRIAR USUÁRIO VIA API ROUTE (SERVER-SIDE)
+const handleCreateUser = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError('');
+  setSuccess('');
+  setCreating(true);
 
-      // Verificar se empresa existe
-      const company = companies.find(c => c.id === form.companyId);
-      if (!company) {
-        throw new Error('Empresa não encontrada');
-      }
+  try {
+    console.log('🔄 [FRONTEND] Iniciando criação de usuário...');
 
-      // Criar usuário usando Admin API Helper
-      const { createUserWithProfile } = await import('@/lib/supabase-admin');
-      
-      const result = await createUserWithProfile({
+    // Validações no frontend
+    if (!form.email || !form.password || !form.fullName || !form.companyId) {
+      throw new Error('Todos os campos são obrigatórios');
+    }
+    if (form.password !== form.confirmPassword) {
+      throw new Error('Senhas não coincidem');
+    }
+    if (form.password.length < 6) {
+      throw new Error('Senha deve ter pelo menos 6 caracteres');
+    }
+
+    // Verificar se empresa existe
+    const company = companies.find(c => c.id === form.companyId);
+    if (!company) {
+      throw new Error('Empresa não encontrada');
+    }
+
+    console.log('📝 [FRONTEND] Enviando dados para API...');
+
+    // Chamar API route (server-side)
+    const response = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         email: form.email,
         password: form.password,
         fullName: form.fullName,
         companyId: form.companyId,
         role: form.role
-      });
+      })
+    });
 
-      if (!result.success) {
-        throw new Error(result.error || 'Erro ao criar usuário');
-      }
+    console.log('📡 [FRONTEND] Resposta da API:', response.status, response.statusText);
 
-      setSuccess(`✅ Usuário criado com sucesso!
-      
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Erro ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Erro ao criar usuário');
+    }
+
+    console.log('✅ [FRONTEND] Usuário criado com sucesso:', result.user?.email);
+
+    setSuccess(`✅ Usuário criado com sucesso!
+
 📧 Email: ${form.email}
 🏢 Empresa: ${company.display_name}
 👤 Papel: ${form.role}
@@ -293,25 +316,26 @@ As empresas do Asana foram sincronizadas com sucesso!`);
 
 O usuário já pode fazer login no sistema.`);
 
-      // Reset form
-      setForm({
-        email: '',
-        password: '',
-        confirmPassword: '',
-        fullName: '',
-        companyId: companies[0]?.id || '',
-        role: 'viewer'
-      });
-      
-      // Recarregar lista de usuários
-      await loadData();
-      
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao criar usuário');
-    } finally {
-      setCreating(false);
-    }
-  };
+    // Reset form
+    setForm({
+      email: '',
+      password: '',
+      confirmPassword: '',
+      fullName: '',
+      companyId: companies[0]?.id || '',
+      role: 'viewer'
+    });
+    
+    // Recarregar lista de usuários
+    await loadData();
+    
+  } catch (err) {
+    console.error('❌ [FRONTEND] Erro na criação:', err);
+    setError(err instanceof Error ? err.message : 'Erro ao criar usuário');
+  } finally {
+    setCreating(false);
+  }
+};
 
   // ✅ LOADING
   if (loading) {
