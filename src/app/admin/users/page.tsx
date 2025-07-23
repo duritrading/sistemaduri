@@ -1,31 +1,16 @@
-// src/app/admin/users/page.tsx - COM API CORRIGIDA E TRATAMENTO DE ERROS
+// src/app/admin/users/page.tsx - VERSÃO COM EDITAR/EXCLUIR + DEBUG DE SINCRONIZAÇÃO
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { 
-  Users, 
-  UserPlus, 
-  Mail, 
-  Lock, 
-  Building2, 
-  User, 
-  Shield, 
-  Loader2, 
-  AlertCircle, 
-  CheckCircle,
-  Eye,
-  EyeOff,
-  ArrowLeft,
-  Copy,
-  Trash2,
-  RefreshCw,
-  Database,
-  Zap,
-  Bug
+  Users, ArrowLeft, UserPlus, RefreshCw, Loader2, 
+  Database, Zap, Bug, CheckCircle, XCircle, 
+  Edit2, Trash2, Eye, EyeOff, AlertTriangle 
 } from 'lucide-react';
 
+// ✅ INTERFACES
 interface Company {
   id: string;
   name: string;
@@ -34,37 +19,62 @@ interface Company {
   active: boolean;
 }
 
-interface UserProfile {
+interface User {
   id: string;
   email: string;
   full_name: string | null;
-  role: string;
+  role: 'admin' | 'manager' | 'operator' | 'viewer';
   active: boolean;
-  company_id: string;
+  last_login: string | null;
   created_at: string;
+  updated_at: string;
+  company_id: string;
   companies?: Company;
 }
 
 interface SyncStatus {
+  success: boolean;
   companiesInDatabase: number;
-  companiesInAsana: number;
+  companiesInAsana: string;
   needsSync: boolean;
+  asanaConfigured: boolean;
   companies: Company[];
 }
 
-export default function AdminUsersPage() {
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string>('');
+interface SyncResult {
+  success: boolean;
+  message: string;
+  stats: {
+    totalProcessed: number;
+    created: number;
+    updated: number;
+    errors: number;
+  };
+  errorDetails?: string[];
+  skippedTasks?: string[];
+}
 
+export default function UsersAdminPage() {
+  // ✅ STATES
+  const [loading, setLoading] = useState(true);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showSyncDetails, setShowSyncDetails] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+
+  // ✅ STATES PARA EDIÇÃO/EXCLUSÃO
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // ✅ FORM STATES
   const [form, setForm] = useState({
     email: '',
     password: '',
@@ -74,10 +84,18 @@ export default function AdminUsersPage() {
     role: 'viewer' as 'admin' | 'manager' | 'operator' | 'viewer'
   });
 
-  const { user, profile, supabaseConfigured } = useAuth();
+  const [editForm, setEditForm] = useState({
+    email: '',
+    fullName: '',
+    companyId: '',
+    role: 'viewer' as 'admin' | 'manager' | 'operator' | 'viewer',
+    active: true
+  });
+
+  const { user, profile } = useAuth();
   const router = useRouter();
 
-  // ✅ VERIFICAR PERMISSÕES DE ADMIN
+  // ✅ VERIFICAR PERMISSÕES
   useEffect(() => {
     if (!user || !profile) {
       router.push('/login');
@@ -89,14 +107,8 @@ export default function AdminUsersPage() {
       return;
     }
 
-    if (!supabaseConfigured) {
-      setError('Configure as variáveis de ambiente primeiro.');
-      setLoading(false);
-      return;
-    }
-
     loadData();
-  }, [user, profile, supabaseConfigured, router]);
+  }, [user, profile, router]);
 
   // ✅ CARREGAR DADOS
   const loadData = async () => {
@@ -106,8 +118,8 @@ export default function AdminUsersPage() {
       
       const { supabase } = await import('@/lib/supabase');
       
-      // Carregar empresas do banco
-      setDebugInfo('📊 Buscando empresas no banco...');
+      // Carregar empresas
+      setDebugInfo('📊 Buscando empresas...');
       const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
         .select('*')
@@ -120,13 +132,13 @@ export default function AdminUsersPage() {
       }
       
       setCompanies(companiesData || []);
-      setDebugInfo(`✅ Encontradas ${companiesData?.length || 0} empresas no banco`);
+      setDebugInfo(`✅ ${companiesData?.length || 0} empresas encontradas`);
       
       if (companiesData && companiesData.length > 0 && !form.companyId) {
         setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
       }
 
-      // Carregar usuários existentes
+      // Carregar usuários
       setDebugInfo('👥 Buscando usuários...');
       const { data: usersData, error: usersError } = await supabase
         .from('user_profiles')
@@ -148,7 +160,7 @@ export default function AdminUsersPage() {
       }
       
       setUsers(usersData || []);
-      setDebugInfo(`✅ Encontrados ${usersData?.length || 0} usuários`);
+      setDebugInfo(`✅ ${usersData?.length || 0} usuários encontrados`);
 
       // Verificar status de sincronização
       await checkSyncStatus();
@@ -162,19 +174,15 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO COM DEBUGGING
+  // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO
   const checkSyncStatus = async () => {
     try {
       setDebugInfo('🔍 Verificando status de sincronização...');
       
       const response = await fetch('/api/sync-companies', {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
-
-      setDebugInfo(`📡 Response status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -182,7 +190,7 @@ export default function AdminUsersPage() {
       
       const status = await response.json();
       setSyncStatus(status);
-      setDebugInfo(`✅ Status: ${status.companiesInDatabase} no banco, ${status.companiesInAsana} no Asana`);
+      setDebugInfo(`✅ Status: ${status.companiesInDatabase} no banco, Asana: ${status.asanaConfigured ? 'configurado' : 'não configurado'}`);
       
     } catch (error) {
       console.error('Erro ao verificar status de sincronização:', error);
@@ -190,91 +198,43 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ SINCRONIZAR EMPRESAS - VERSÃO BULLETPROOF
+  // ✅ SINCRONIZAR EMPRESAS COM DEBUG
   const handleSyncCompanies = async () => {
-    // Prevenir cliques múltiplos
-    if (syncing) {
-      console.log('⚠️ Sincronização já em andamento...');
-      return;
-    }
+    if (syncing) return;
 
     setSyncing(true);
     setError('');
     setSuccess('');
     setDebugInfo('🔄 Iniciando sincronização...');
+    setLastSyncResult(null);
 
     try {
-      console.log('🔄 [FRONTEND] Chamando API de sincronização...');
-
-      // ✅ TIMEOUT DE 30 SEGUNDOS
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-        console.log('⏰ Timeout na sincronização');
-      }, 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       const response = await fetch('/api/sync-companies', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         signal: controller.signal
       });
 
       clearTimeout(timeoutId);
 
-      console.log(`📡 [FRONTEND] Response: ${response.status} ${response.statusText}`);
-      setDebugInfo(`📡 Response: ${response.status} ${response.statusText}`);
-
-      // ✅ TRATAR DIFERENTES STATUS DE ERRO
       if (!response.ok) {
-        let errorDetails = `Status ${response.status}: ${response.statusText}`;
-        
-        try {
-          const errorText = await response.text();
-          console.log('❌ [FRONTEND] Erro detalhado:', errorText);
-          
-          // Tentar extrair mensagem de erro mais específica
-          try {
-            const errorJson = JSON.parse(errorText);
-            errorDetails = errorJson.details || errorJson.error || errorDetails;
-          } catch {
-            // Se não for JSON, usar texto como está
-            if (errorText && errorText.length < 300) {
-              errorDetails = errorText;
-            }
-          }
-        } catch (parseError) {
-          console.error('❌ [FRONTEND] Erro ao ler resposta:', parseError);
-        }
-        
-        setDebugInfo(`❌ Erro da API: ${errorDetails}`);
-        throw new Error(`Erro ${response.status}: ${errorDetails}`);
+        const errorText = await response.text();
+        throw new Error(`Status ${response.status}: ${errorText}`);
       }
 
-      // ✅ PROCESSAR RESPOSTA DE SUCESSO
-      let result;
-      try {
-        result = await response.json();
-      } catch (jsonError) {
-        console.error('❌ [FRONTEND] Erro ao fazer parse do JSON:', jsonError);
-        throw new Error('Resposta da API inválida');
-      }
+      const result = await response.json();
+      setLastSyncResult(result);
       
-      console.log('📊 [FRONTEND] Resultado da sincronização:', result);
-      setDebugInfo(`📊 Resultado: ${JSON.stringify(result.stats || {}, null, 2)}`);
-
-      // ✅ VERIFICAR SE A SINCRONIZAÇÃO FOI BEM-SUCEDIDA
       if (!result.success) {
-        const errorMsg = result.error || result.details || 'Erro desconhecido na sincronização';
-        setDebugInfo(`❌ API retornou erro: ${errorMsg}`);
-        throw new Error(errorMsg);
+        throw new Error(result.error || 'Erro na sincronização');
       }
 
-      // ✅ MOSTRAR RESULTADO DE SUCESSO
       const stats = result.stats || { totalProcessed: 0, created: 0, updated: 0, errors: 0 };
       
-      setSuccess(`✅ ${result.message || 'Sincronização concluída!'}
+      setSuccess(`✅ ${result.message}
 
 📊 Estatísticas:
 • Total processadas: ${stats.totalProcessed}
@@ -284,114 +244,68 @@ export default function AdminUsersPage() {
 
 As empresas foram sincronizadas com sucesso!`);
 
-      setDebugInfo('✅ Sincronização concluída com sucesso');
-
-      // ✅ RECARREGAR DADOS
-      console.log('🔄 [FRONTEND] Recarregando dados...');
+      // Recarregar dados
       await loadData();
-
+      
     } catch (err) {
-      console.error('❌ [FRONTEND] Erro na sincronização:', err);
-      
-      let errorMessage = 'Erro desconhecido na sincronização';
-      
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          errorMessage = 'Sincronização cancelada por timeout (30s). A API pode estar lenta, tente novamente.';
-        } else if (err.message.includes('Failed to fetch')) {
-          errorMessage = 'Erro de conexão com a API. Verifique sua internet e tente novamente.';
-        } else if (err.message.includes('NetworkError')) {
-          errorMessage = 'Erro de rede. Tente novamente em alguns minutos.';
-        } else if (err.message.includes('500')) {
-          errorMessage = 'Erro interno do servidor. Verifique se as variáveis de ambiente estão configuradas no Vercel.';
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
+      console.error('❌ Erro na sincronização:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(`❌ Erro na sincronização: ${errorMessage}`);
       setDebugInfo(`❌ Erro final: ${errorMessage}`);
-      
-      // ✅ SUGESTÕES DE SOLUÇÃO
-      if (errorMessage.includes('500') || errorMessage.includes('servidor')) {
-        setError(`❌ Erro na sincronização: ${errorMessage}
-
-🔧 Possíveis soluções:
-• Verifique se NEXT_PUBLIC_SUPABASE_URL está configurada no Vercel
-• Verifique se SUPABASE_SERVICE_ROLE_KEY está configurada no Vercel  
-• Confirme se a tabela 'companies' existe no Supabase
-• Tente novamente em alguns minutos`);
-      }
-      
     } finally {
       setSyncing(false);
     }
   };
 
   // ✅ CRIAR USUÁRIO
-  // Função handleCreateUser corrigida para usar API route
-// Substitua apenas esta função no arquivo src/app/admin/users/page.tsx
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setCreating(true);
 
-// ✅ CRIAR USUÁRIO VIA API ROUTE (SERVER-SIDE)
-const handleCreateUser = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError('');
-  setSuccess('');
-  setCreating(true);
+    try {
+      // Validações
+      if (!form.email || !form.password || !form.fullName || !form.companyId) {
+        throw new Error('Todos os campos são obrigatórios');
+      }
+      if (form.password !== form.confirmPassword) {
+        throw new Error('Senhas não coincidem');
+      }
+      if (form.password.length < 6) {
+        throw new Error('Senha deve ter pelo menos 6 caracteres');
+      }
 
-  try {
-    console.log('🔄 [FRONTEND] Iniciando criação de usuário...');
+      const company = companies.find(c => c.id === form.companyId);
+      if (!company) {
+        throw new Error('Empresa não encontrada');
+      }
 
-    // Validações no frontend
-    if (!form.email || !form.password || !form.fullName || !form.companyId) {
-      throw new Error('Todos os campos são obrigatórios');
-    }
-    if (form.password !== form.confirmPassword) {
-      throw new Error('Senhas não coincidem');
-    }
-    if (form.password.length < 6) {
-      throw new Error('Senha deve ter pelo menos 6 caracteres');
-    }
+      // Chamar API
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          fullName: form.fullName,
+          companyId: form.companyId,
+          role: form.role
+        })
+      });
 
-    // Verificar se empresa existe
-    const company = companies.find(c => c.id === form.companyId);
-    if (!company) {
-      throw new Error('Empresa não encontrada');
-    }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Erro ${response.status}`);
+      }
 
-    console.log('📝 [FRONTEND] Enviando dados para API...');
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Erro ao criar usuário');
+      }
 
-    // Chamar API route (server-side)
-    const response = await fetch('/api/admin/create-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        email: form.email,
-        password: form.password,
-        fullName: form.fullName,
-        companyId: form.companyId,
-        role: form.role
-      })
-    });
-
-    console.log('📡 [FRONTEND] Resposta da API:', response.status, response.statusText);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Erro ${response.status}: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Erro ao criar usuário');
-    }
-
-    console.log('✅ [FRONTEND] Usuário criado com sucesso:', result.user?.email);
-
-    setSuccess(`✅ Usuário criado com sucesso!
+      setSuccess(`✅ Usuário criado com sucesso!
 
 📧 Email: ${form.email}
 🏢 Empresa: ${company.display_name}
@@ -400,26 +314,109 @@ const handleCreateUser = async (e: React.FormEvent) => {
 
 O usuário já pode fazer login no sistema.`);
 
-    // Reset form
-    setForm({
-      email: '',
-      password: '',
-      confirmPassword: '',
-      fullName: '',
-      companyId: companies[0]?.id || '',
-      role: 'viewer'
+      // Reset form
+      setForm({
+        email: '',
+        password: '',
+        confirmPassword: '',
+        fullName: '',
+        companyId: companies[0]?.id || '',
+        role: 'viewer'
+      });
+      
+      await loadData();
+      
+    } catch (err) {
+      console.error('❌ Erro na criação:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao criar usuário');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // ✅ INICIAR EDIÇÃO
+  const handleEditUser = (user: User) => {
+    setEditingUser(user);
+    setEditForm({
+      email: user.email,
+      fullName: user.full_name || '',
+      companyId: user.company_id,
+      role: user.role,
+      active: user.active
     });
-    
-    // Recarregar lista de usuários
-    await loadData();
-    
-  } catch (err) {
-    console.error('❌ [FRONTEND] Erro na criação:', err);
-    setError(err instanceof Error ? err.message : 'Erro ao criar usuário');
-  } finally {
-    setCreating(false);
-  }
-};
+    setError('');
+    setSuccess('');
+  };
+
+  // ✅ SALVAR EDIÇÃO
+  const handleSaveEdit = async () => {
+    if (!editingUser) return;
+
+    try {
+      setError('');
+      
+      const { supabase } = await import('@/lib/supabase');
+      
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({
+          email: editForm.email,
+          full_name: editForm.fullName,
+          company_id: editForm.companyId,
+          role: editForm.role,
+          active: editForm.active,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingUser.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setSuccess(`✅ Usuário ${editForm.email} atualizado com sucesso!`);
+      setEditingUser(null);
+      await loadData();
+      
+    } catch (err) {
+      console.error('❌ Erro ao atualizar:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar usuário');
+    }
+  };
+
+  // ✅ CONFIRMAR EXCLUSÃO
+  const handleDeleteUser = (user: User) => {
+    setDeletingUser(user);
+    setError('');
+    setSuccess('');
+  };
+
+  // ✅ EXECUTAR EXCLUSÃO
+  const handleConfirmDelete = async () => {
+    if (!deletingUser) return;
+
+    try {
+      setError('');
+      
+      const { supabase } = await import('@/lib/supabase');
+      
+      const { error: deleteError } = await supabase
+        .from('user_profiles')
+        .delete()
+        .eq('id', deletingUser.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      setSuccess(`✅ Usuário ${deletingUser.email} removido com sucesso!`);
+      setDeletingUser(null);
+      await loadData();
+      
+    } catch (err) {
+      console.error('❌ Erro ao excluir:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao excluir usuário');
+    }
+  };
 
   // ✅ LOADING
   if (loading) {
@@ -465,7 +462,7 @@ O usuário já pode fazer login no sistema.`);
             <div className="flex items-center space-x-3">
               {/* Status de Sincronização */}
               {syncStatus && (
-                <div className={`px-3 py-2 rounded-lg text-sm font-medium ${
+                <div className={`px-3 py-2 rounded-lg text-sm font-medium border ${
                   syncStatus.needsSync 
                     ? 'bg-amber-100 text-amber-800 border border-amber-200' 
                     : 'bg-green-100 text-green-800 border border-green-200'
@@ -512,7 +509,7 @@ O usuário já pode fazer login no sistema.`);
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* ✅ DEBUG INFO EM DEV */}
+        {/* ✅ DEBUG INFO */}
         {process.env.NODE_ENV === 'development' && debugInfo && (
           <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
             <div className="flex items-start space-x-3">
@@ -525,178 +522,182 @@ O usuário já pode fazer login no sistema.`);
           </div>
         )}
 
-        {/* ✅ ALERTA DE SINCRONIZAÇÃO */}
-        {syncStatus?.needsSync && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-3">
-            <Zap size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-amber-800 font-medium">Sincronização Necessária</p>
-              <p className="text-amber-700 text-sm mt-1">
-                Você tem {syncStatus.companiesInAsana} empresas no Asana, mas apenas {syncStatus.companiesInDatabase} no banco. 
-                Clique em "Sincronizar Empresas" para importar todas as empresas do Asana.
-              </p>
+        {/* ✅ DETALHES DE SINCRONIZAÇÃO */}
+        {lastSyncResult && lastSyncResult.errorDetails && lastSyncResult.errorDetails.length > 0 && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-start justify-between">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-amber-800 font-medium">Detalhes da Sincronização</p>
+                  <p className="text-amber-700 text-sm mt-1">
+                    {lastSyncResult.errorDetails.length} erros detectados durante a extração
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSyncDetails(!showSyncDetails)}
+                className="text-amber-600 hover:text-amber-800 text-sm font-medium"
+              >
+                {showSyncDetails ? 'Ocultar' : 'Ver Detalhes'}
+              </button>
             </div>
+            
+            {showSyncDetails && (
+              <div className="mt-4 space-y-2">
+                <h4 className="font-medium text-amber-800">Erros de Extração:</h4>
+                <div className="bg-white rounded border max-h-40 overflow-y-auto">
+                  {lastSyncResult.errorDetails.map((error, i) => (
+                    <div key={i} className="px-3 py-2 text-sm text-gray-700 border-b border-gray-100 last:border-b-0">
+                      {error}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-amber-600 mt-2">
+                  Estes erros indicam tasks no Asana que não seguem o padrão esperado: "Nº EMPRESA (detalhes)"
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ✅ MENSAGENS */}
+        {/* ✅ ALERTS */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-3">
-            <AlertCircle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-red-800 font-medium">Erro</p>
-              <pre className="text-red-700 text-sm mt-1 whitespace-pre-line">{error}</pre>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <XCircle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-red-800 font-medium">Erro</p>
+                <pre className="text-red-700 text-sm mt-1 whitespace-pre-wrap">{error}</pre>
+              </div>
             </div>
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start space-x-3">
-            <CheckCircle size={20} className="text-green-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-green-800 font-medium">Sucesso</p>
-              <pre className="text-green-700 text-sm mt-1 whitespace-pre-line font-mono">{success}</pre>
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <CheckCircle size={20} className="text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-green-800 font-medium">Sucesso</p>
+                <pre className="text-green-700 text-sm mt-1 whitespace-pre-wrap">{success}</pre>
+              </div>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* ✅ GRID LAYOUT */}
+        <div className={`grid gap-8 ${showCreateForm ? 'lg:grid-cols-3' : 'lg:grid-cols-1'}`}>
           
-          {/* ✅ FORMULÁRIO DE CRIAÇÃO */}
+          {/* ✅ FORMULÁRIO DE CRIAR USUÁRIO */}
           {showCreateForm && (
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow-sm border p-6">
-                <h2 className="text-xl font-bold mb-6 flex items-center space-x-2">
-                  <UserPlus size={20} />
-                  <span>Criar Novo Usuário</span>
-                </h2>
-
+            <div className="bg-white rounded-lg shadow-sm border">
+              <div className="p-6 border-b">
+                <h2 className="text-xl font-bold">Criar Novo Usuário</h2>
+              </div>
+              
+              <div className="p-6">
                 <form onSubmit={handleCreateUser} className="space-y-4">
-                  {/* Email */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                    <div className="relative">
-                      <Mail size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="email"
-                        value={form.email}
-                        onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="cliente@empresa.com"
-                        required
-                        disabled={creating}
-                      />
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
                   </div>
 
-                  {/* Nome Completo */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
-                    <div className="relative">
-                      <User size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={form.fullName}
-                        onChange={(e) => setForm(prev => ({ ...prev, fullName: e.target.value }))}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Nome do Cliente"
-                        required
-                        disabled={creating}
-                      />
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nome Completo
+                    </label>
+                    <input
+                      type="text"
+                      value={form.fullName}
+                      onChange={(e) => setForm(prev => ({ ...prev, fullName: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
                   </div>
 
-                  {/* Empresa */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Empresa ({companies.length} disponíveis)
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Empresa
+                    </label>
+                    <select
+                      value={form.companyId}
+                      onChange={(e) => setForm(prev => ({ ...prev, companyId: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      {companies.map(company => (
+                        <option key={company.id} value={company.id}>
+                          {company.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Papel
+                    </label>
+                    <select
+                      value={form.role}
+                      onChange={(e) => setForm(prev => ({ ...prev, role: e.target.value as any }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="operator">Operator</option>
+                      <option value="manager">Manager</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Senha
                     </label>
                     <div className="relative">
-                      <Building2 size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <select
-                        value={form.companyId}
-                        onChange={(e) => setForm(prev => ({ ...prev, companyId: e.target.value }))}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        required
-                        disabled={creating}
-                      >
-                        <option value="">Selecione uma empresa</option>
-                        {companies.map(company => (
-                          <option key={company.id} value={company.id}>
-                            {company.display_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Papel */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Papel no Sistema</label>
-                    <div className="relative">
-                      <Shield size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <select
-                        value={form.role}
-                        onChange={(e) => setForm(prev => ({ ...prev, role: e.target.value as any }))}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={creating}
-                      >
-                        <option value="viewer">Visualizador (apenas leitura)</option>
-                        <option value="operator">Operador (pode editar)</option>
-                        <option value="manager">Gerente (controle total da empresa)</option>
-                        <option value="admin">Administrador (controle total do sistema)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Senha */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Senha</label>
-                    <div className="relative">
-                      <Lock size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={form.password}
                         onChange={(e) => setForm(prev => ({ ...prev, password: e.target.value }))}
-                        className="w-full pl-10 pr-12 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Mínimo 6 caracteres"
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         required
                         minLength={6}
-                        disabled={creating}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-                        disabled={creating}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center"
                       >
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
                   </div>
 
-                  {/* Confirmar Senha */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Senha</label>
-                    <div className="relative">
-                      <Lock size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={form.confirmPassword}
-                        onChange={(e) => setForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Repita a senha"
-                        required
-                        disabled={creating}
-                      />
-                    </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Confirmar Senha
+                    </label>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={form.confirmPassword}
+                      onChange={(e) => setForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
                   </div>
 
-                  {/* Submit */}
                   <button
                     type="submit"
                     disabled={creating || companies.length === 0}
-                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                   >
                     {creating ? (
                       <>
@@ -712,10 +713,9 @@ O usuário já pode fazer login no sistema.`);
                   </button>
 
                   {companies.length === 0 && (
-                    <div className="text-center p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-amber-800 text-sm">
-                        Nenhuma empresa disponível. Clique em "Sincronizar Empresas" primeiro.
-                      </p>
+                    <div className="text-center text-amber-600 text-sm">
+                      <p>⚠️ Nenhuma empresa disponível.</p>
+                      <p>Clique em "Sincronizar Empresas" primeiro.</p>
                     </div>
                   )}
                 </form>
@@ -724,7 +724,7 @@ O usuário já pode fazer login no sistema.`);
           )}
 
           {/* ✅ LISTA DE USUÁRIOS */}
-          <div className={showCreateForm ? "lg:col-span-2" : "lg:col-span-3"}>
+          <div className={showCreateForm ? "lg:col-span-2" : "lg:col-span-1"}>
             <div className="bg-white rounded-lg shadow-sm border">
               <div className="p-6 border-b">
                 <h2 className="text-xl font-bold">Usuários Cadastrados ({users.length})</h2>
@@ -748,6 +748,9 @@ O usuário já pode fazer login no sistema.`);
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Criado em
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ações
                       </th>
                     </tr>
                   </thead>
@@ -785,15 +788,32 @@ O usuário já pode fazer login no sistema.`);
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(user.created_at).toLocaleDateString('pt-BR')}
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                          <button
+                            onClick={() => handleEditUser(user)}
+                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                            title="Editar usuário"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                            title="Excluir usuário"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 
                 {users.length === 0 && (
-                  <div className="text-center py-12">
-                    <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500">Nenhum usuário cadastrado ainda</p>
+                  <div className="text-center py-8 text-gray-500">
+                    <Users size={48} className="mx-auto mb-4 text-gray-300" />
+                    <p>Nenhum usuário cadastrado ainda.</p>
+                    <p>Clique em "Novo Usuário" para começar.</p>
                   </div>
                 )}
               </div>
@@ -801,6 +821,131 @@ O usuário já pode fazer login no sistema.`);
           </div>
         </div>
       </div>
+
+      {/* ✅ MODAL DE EDIÇÃO */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">Editar Usuário</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                <input
+                  type="text"
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, fullName: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+                <select
+                  value={editForm.companyId}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, companyId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {companies.map(company => (
+                    <option key={company.id} value={company.id}>
+                      {company.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Papel</label>
+                <select
+                  value={editForm.role}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value as any }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="operator">Operator</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="active"
+                  checked={editForm.active}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, active: e.target.checked }))}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="active" className="ml-2 block text-sm text-gray-900">
+                  Usuário ativo
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setEditingUser(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
+      {deletingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4 text-red-800">Confirmar Exclusão</h3>
+            
+            <p className="text-gray-700 mb-2">
+              Tem certeza que deseja excluir o usuário:
+            </p>
+            <p className="font-semibold text-gray-900 mb-4">
+              {deletingUser.full_name} ({deletingUser.email})
+            </p>
+            
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+              <p className="text-red-800 text-sm">
+                ⚠️ Esta ação não pode ser desfeita. O usuário perderá acesso imediatamente ao sistema.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeletingUser(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Excluir Usuário
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

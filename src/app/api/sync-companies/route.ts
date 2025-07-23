@@ -1,12 +1,10 @@
-// src/app/api/sync-companies/route.ts - VERSÃO CORRIGIDA COM EXTRAÇÃO PRECISA
+// src/app/api/sync-companies/route.ts - VERSÃO DEBUG PARA IDENTIFICAR OS 26 ERROS
 import { NextResponse } from 'next/server';
 
-// ✅ FORCE VERCEL COMPATIBILITY
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// ✅ INTERFACES
 interface AsanaCompany {
   id: string;
   name: string;
@@ -24,87 +22,89 @@ interface SyncResult {
   companies?: AsanaCompany[];
   message: string;
   details?: any[];
+  errorDetails?: string[];
+  skippedTasks?: string[];
   error?: string;
 }
 
-// ✅ EXTRAÇÃO PRECISA BASEADA NOS PADRÕES REAIS DO ASANA
-function extractCompanyFromTitle(title: string): string | null {
-  if (!title || typeof title !== 'string') return null;
+// ✅ EXTRAÇÃO COM DEBUG DETALHADO
+function extractCompanyFromTitle(title: string, debugMode = true): string | null {
+  if (!title || typeof title !== 'string') {
+    if (debugMode) console.log(`❌ [EXTRACT] Título inválido: ${JSON.stringify(title)}`);
+    return null;
+  }
   
   const cleanTitle = title.trim();
   
-  // PADRÃO PRINCIPAL: [NÚMERO]º [NOME_EMPRESA] [(DETALHES_OPCIONAIS)]
-  // Exemplos suportados:
-  // "15º NATURALLY" → "Naturally"
-  // "87º Duri (GENERADOR - MARÍTIMO)" → "Duri" 
-  // "14.2 FIBRASA (INTRAVIS - ES: ALEMANHA)" → "Fibrasa"
-  // "02º R A B (BATATA)" → "R A B"
-  // "02º REI DOS PARA-BRISAS" → "Rei Dos Para-Brisas"
-  
+  // PADRÃO PRINCIPAL
   const mainPattern = /^\d+(\.\d+)?º\s+([A-Z][A-Z0-9\s\-&.]+?)(?:\s*\(|$)/i;
   const match = cleanTitle.match(mainPattern);
   
   if (match && match[2]) {
     let companyName = match[2].trim();
-    
-    // Remover caracteres especiais do final
     companyName = companyName.replace(/[\s\-.,]+$/, '');
     
-    // Validar tamanho
     if (companyName.length >= 1 && companyName.length <= 50) {
-      return formatCompanyName(companyName);
+      const formatted = formatCompanyName(companyName);
+      if (debugMode) console.log(`✅ [EXTRACT] "${cleanTitle}" → "${formatted}"`);
+      return formatted;
+    } else {
+      if (debugMode) console.log(`❌ [EXTRACT] Nome muito longo/curto: "${companyName}" (${companyName.length} chars)`);
     }
+  } else {
+    if (debugMode) console.log(`❌ [EXTRACT] Padrão não reconhecido: "${cleanTitle}"`);
   }
   
   return null;
 }
 
-// ✅ FORMATAÇÃO CORRETA DO NOME DA EMPRESA
 function formatCompanyName(name: string): string {
   return name
     .toLowerCase()
     .split(/\s+/)
     .map(word => {
-      // Manter siglas em maiúsculo (3 letras ou menos)
       if (word.length <= 3 && /^[A-Z]+$/i.test(word)) {
         return word.toUpperCase();
       }
-      // Capitalizar primeira letra
       return word.charAt(0).toUpperCase() + word.slice(1);
     })
     .join(' ');
 }
 
-// ✅ BUSCAR EMPRESAS REAIS DO ASANA COM EXTRAÇÃO CORRIGIDA
-async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
-  console.log('🔄 [SYNC] Buscando empresas REAIS do Asana...');
+// ✅ BUSCAR EMPRESAS COM ANÁLISE DETALHADA DE ERROS
+async function fetchAsanaCompaniesWithDebug(): Promise<{
+  companies: AsanaCompany[];
+  errorDetails: string[];
+  skippedTasks: string[];
+  totalTasks: number;
+}> {
+  console.log('🔄 [DEBUG] Buscando empresas do Asana com análise detalhada...');
 
-  // 1. Validar token
   const token = process.env.ASANA_ACCESS_TOKEN;
   if (!token || token.trim() === '' || token.includes('your_')) {
-    throw new Error('ASANA_ACCESS_TOKEN não configurado ou inválido');
+    throw new Error('ASANA_ACCESS_TOKEN não configurado');
   }
 
-  // 2. Buscar workspace
+  // 1. Buscar workspace
   const workspacesResponse = await fetch('https://app.asana.com/api/1.0/workspaces', {
     headers: { 'Authorization': `Bearer ${token}` },
     signal: AbortSignal.timeout(15000)
   });
   
   if (!workspacesResponse.ok) {
-    throw new Error(`Erro ao buscar workspaces: ${workspacesResponse.status} ${workspacesResponse.statusText}`);
+    throw new Error(`Erro ao buscar workspaces: ${workspacesResponse.status}`);
   }
   
   const workspacesData = await workspacesResponse.json();
   const workspace = workspacesData.data?.[0];
 
   if (!workspace) {
-    throw new Error('Nenhum workspace encontrado no Asana');
+    throw new Error('Nenhum workspace encontrado');
   }
 
-  console.log(`✅ [SYNC] Workspace encontrado: ${workspace.name}`);
+  console.log(`✅ [DEBUG] Workspace: ${workspace.name}`);
 
-  // 3. Buscar projeto operacional
+  // 2. Buscar projeto operacional
   const projectsResponse = await fetch(
     `https://app.asana.com/api/1.0/projects?workspace=${workspace.gid}&limit=100`,
     { 
@@ -123,12 +123,12 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
   );
 
   if (!operationalProject) {
-    throw new Error('Projeto "operacional" não encontrado no Asana');
+    throw new Error('Projeto "operacional" não encontrado');
   }
 
-  console.log(`✅ [SYNC] Projeto encontrado: ${operationalProject.name}`);
+  console.log(`✅ [DEBUG] Projeto: ${operationalProject.name}`);
 
-  // 4. Buscar tasks do projeto (com paginação)
+  // 3. Buscar tasks com análise detalhada
   const allTasks = [];
   let offset = undefined;
   
@@ -154,27 +154,44 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
     
   } while (offset);
 
-  console.log(`📊 [SYNC] ${allTasks.length} tasks encontradas no Asana`);
+  console.log(`📊 [DEBUG] ${allTasks.length} tasks encontradas`);
 
   if (allTasks.length === 0) {
-    throw new Error('Nenhuma task encontrada no projeto operacional');
+    throw new Error('Nenhuma task encontrada no projeto');
   }
 
-  // 5. Extrair empresas das tasks (VERSÃO CORRIGIDA)
+  // 4. Análise detalhada de cada task
   const companySet = new Set<string>();
-  const extractionLog: string[] = [];
-  
-  allTasks.forEach((task: any, index) => {
-    if (!task.name) return;
+  const errorDetails: string[] = [];
+  const skippedTasks: string[] = [];
+  let successfulExtractions = 0;
 
-    // ✅ USAR A NOVA FUNÇÃO DE EXTRAÇÃO
-    const titleCompany = extractCompanyFromTitle(task.name);
-    if (titleCompany) {
-      companySet.add(titleCompany);
-      extractionLog.push(`${index + 1}. "${task.name}" → "${titleCompany}"`);
+  console.log('\n🔍 [DEBUG] Analisando cada task...');
+
+  allTasks.forEach((task: any, index) => {
+    const taskNumber = index + 1;
+    
+    // Log básico da task
+    console.log(`\n📝 [${taskNumber}/${allTasks.length}] Task: "${task.name}"`);
+    
+    if (!task.name) {
+      skippedTasks.push(`${taskNumber}. Task sem nome (ID: ${task.gid})`);
+      console.log(`   ⚠️ SKIP: Task sem nome`);
+      return;
     }
 
-    // ✅ TAMBÉM VERIFICAR CUSTOM FIELD "EMPRESA"
+    // Tentar extrair do título
+    const titleCompany = extractCompanyFromTitle(task.name, true);
+    if (titleCompany) {
+      companySet.add(titleCompany);
+      successfulExtractions++;
+      console.log(`   ✅ SUCESSO: "${titleCompany}"`);
+    } else {
+      errorDetails.push(`${taskNumber}. "${task.name}" - Padrão não reconhecido`);
+      console.log(`   ❌ ERRO: Padrão não reconhecido`);
+    }
+
+    // Também verificar custom field "EMPRESA"
     if (task.custom_fields && Array.isArray(task.custom_fields)) {
       const empresaField = task.custom_fields.find((field: any) => 
         field.name === 'EMPRESA' && field.display_value
@@ -184,20 +201,13 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
         const fieldCompany = formatCompanyName(empresaField.display_value.toString().trim());
         if (fieldCompany.length >= 1 && fieldCompany.length <= 50) {
           companySet.add(fieldCompany);
-          extractionLog.push(`${index + 1}. Custom field "EMPRESA" → "${fieldCompany}"`);
+          console.log(`   ✅ CUSTOM FIELD: "${fieldCompany}"`);
         }
       }
     }
   });
 
-  // 6. Log das extrações (para debug)
-  console.log(`📋 [SYNC] Extrações realizadas (primeiras 10):`);
-  extractionLog.slice(0, 10).forEach(log => console.log(`   ${log}`));
-  if (extractionLog.length > 10) {
-    console.log(`   ... e mais ${extractionLog.length - 10} extrações`);
-  }
-
-  // 7. Converter para formato final
+  // 5. Estatísticas finais
   const companies: AsanaCompany[] = Array.from(companySet)
     .filter(name => name && name !== 'Não Identificado')
     .map(name => ({
@@ -207,24 +217,32 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  console.log(`✅ [SYNC] ${companies.length} empresas únicas extraídas:`);
+  console.log(`\n📊 [DEBUG] ESTATÍSTICAS FINAIS:`);
+  console.log(`   📋 Total de tasks: ${allTasks.length}`);
+  console.log(`   ✅ Extrações bem-sucedidas: ${successfulExtractions}`);
+  console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
+  console.log(`   ⚠️ Tasks ignoradas: ${skippedTasks.length}`);
+  console.log(`   🏢 Empresas únicas: ${companies.length}`);
+
+  console.log(`\n🏢 [DEBUG] Empresas extraídas:`);
   companies.forEach((company, i) => {
     console.log(`   ${i + 1}. ${company.name}`);
   });
 
-  if (companies.length === 0) {
-    throw new Error('Nenhuma empresa válida foi extraída das tasks do Asana');
-  }
-
-  return companies;
+  return {
+    companies,
+    errorDetails,
+    skippedTasks,
+    totalTasks: allTasks.length
+  };
 }
 
-// ✅ POST - SINCRONIZAR EMPRESAS (ASANA ONLY COM EXTRAÇÃO CORRIGIDA)
+// ✅ POST - SINCRONIZAR COM DEBUG COMPLETO
 export async function POST() {
-  console.log('🚀 [SYNC] Sincronização ASANA ONLY iniciada (versão corrigida)...');
+  console.log('🚀 [DEBUG] Sincronização com análise detalhada de erros...');
   
   try {
-    // 1. Verificar variáveis Supabase
+    // 1. Verificar Supabase
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -232,12 +250,10 @@ export async function POST() {
       throw new Error('Variáveis Supabase não configuradas');
     }
 
-    console.log('✅ [SYNC] Variáveis Supabase verificadas');
-
-    // 2. Buscar empresas REAIS do Asana (com extração corrigida)
-    const asanaCompanies = await fetchAsanaCompaniesReal();
+    // 2. Buscar empresas com análise detalhada
+    const { companies, errorDetails, skippedTasks, totalTasks } = await fetchAsanaCompaniesWithDebug();
     
-    console.log(`🏢 [SYNC] ${asanaCompanies.length} empresas obtidas do Asana`);
+    console.log(`🏢 [DEBUG] ${companies.length} empresas para sincronizar`);
 
     // 3. Conectar ao Supabase
     const { createClient } = await import('@supabase/supabase-js');
@@ -245,17 +261,15 @@ export async function POST() {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    console.log('✅ [SYNC] Conexão Supabase estabelecida');
-
     // 4. Sincronizar cada empresa
     let createdCount = 0;
     let updatedCount = 0;
     let errorCount = 0;
     const results = [];
+    const dbErrors: string[] = [];
 
-    for (const company of asanaCompanies) {
+    for (const company of companies) {
       try {
-        // Verificar se empresa já existe (por nome)
         const { data: existing, error: fetchError } = await supabase
           .from('companies')
           .select('*')
@@ -263,7 +277,7 @@ export async function POST() {
           .single();
 
         if (existing && !fetchError) {
-          // Atualizar empresa existente
+          // Atualizar
           const { error: updateError } = await supabase
             .from('companies')
             .update({
@@ -275,20 +289,17 @@ export async function POST() {
             .eq('id', existing.id);
 
           if (updateError) {
-            console.error(`❌ [SYNC] Erro ao atualizar ${company.name}:`, updateError);
+            console.error(`❌ [DB] Erro ao atualizar ${company.name}:`, updateError);
             errorCount++;
-            results.push({ 
-              company: company.name, 
-              status: 'error', 
-              error: updateError.message 
-            });
+            dbErrors.push(`UPDATE ${company.name}: ${updateError.message}`);
+            results.push({ company: company.name, status: 'error', error: updateError.message });
           } else {
-            console.log(`✅ [SYNC] Atualizada: ${company.name}`);
+            console.log(`✅ [DB] Atualizada: ${company.name}`);
             updatedCount++;
             results.push({ company: company.name, status: 'updated' });
           }
         } else {
-          // Criar nova empresa
+          // Criar
           const { error: insertError } = await supabase
             .from('companies')
             .insert({
@@ -299,49 +310,57 @@ export async function POST() {
             });
 
           if (insertError) {
-            console.error(`❌ [SYNC] Erro ao criar ${company.name}:`, insertError);
+            console.error(`❌ [DB] Erro ao criar ${company.name}:`, insertError);
             errorCount++;
-            results.push({ 
-              company: company.name, 
-              status: 'error', 
-              error: insertError.message 
-            });
+            dbErrors.push(`INSERT ${company.name}: ${insertError.message}`);
+            results.push({ company: company.name, status: 'error', error: insertError.message });
           } else {
-            console.log(`✅ [SYNC] Criada: ${company.name}`);
+            console.log(`✅ [DB] Criada: ${company.name}`);
             createdCount++;
             results.push({ company: company.name, status: 'created' });
           }
         }
       } catch (companyError) {
-        console.error(`❌ [SYNC] Erro geral para ${company.name}:`, companyError);
+        console.error(`❌ [DB] Erro geral para ${company.name}:`, companyError);
         errorCount++;
-        results.push({ 
-          company: company.name, 
-          status: 'error', 
-          error: companyError instanceof Error ? companyError.message : 'Erro desconhecido'
-        });
+        const errorMsg = companyError instanceof Error ? companyError.message : 'Erro desconhecido';
+        dbErrors.push(`GENERAL ${company.name}: ${errorMsg}`);
+        results.push({ company: company.name, status: 'error', error: errorMsg });
       }
     }
 
-    // 5. Resultado final
+    // 5. Resultado final com detalhes dos erros
     const finalResult: SyncResult = {
       success: true,
       message: `Sincronização Asana concluída: ${createdCount} criadas, ${updatedCount} atualizadas, ${errorCount} erros`,
       stats: {
-        totalProcessed: asanaCompanies.length,
+        totalProcessed: companies.length,
         created: createdCount,
         updated: updatedCount,
         errors: errorCount
       },
-      companies: asanaCompanies,
-      details: results
+      companies: companies,
+      details: results,
+      errorDetails: [
+        ...errorDetails.map(e => `EXTRAÇÃO: ${e}`),
+        ...dbErrors.map(e => `DATABASE: ${e}`)
+      ],
+      skippedTasks
     };
 
-    console.log(`🎯 [SYNC] Sincronização concluída:`, finalResult.message);
+    console.log(`\n🎯 [DEBUG] RESULTADO FINAL:`);
+    console.log(`   📊 Tasks processadas: ${totalTasks}`);
+    console.log(`   🏢 Empresas extraídas: ${companies.length}`);
+    console.log(`   ✅ Criadas: ${createdCount}`);
+    console.log(`   🔄 Atualizadas: ${updatedCount}`);
+    console.log(`   ❌ Erros: ${errorCount}`);
+    console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
+    console.log(`   ⚠️ Tasks ignoradas: ${skippedTasks.length}`);
+
     return NextResponse.json(finalResult);
 
   } catch (error) {
-    console.error('❌ [SYNC] ERRO FATAL na sincronização:', error);
+    console.error('❌ [DEBUG] ERRO FATAL:', error);
     
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     
@@ -351,16 +370,15 @@ export async function POST() {
       details: errorMessage,
       message: `Erro: ${errorMessage}`,
       stats: { totalProcessed: 0, created: 0, updated: 0, errors: 1 },
+      errorDetails: [errorMessage],
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
 }
 
-// ✅ GET - STATUS DAS EMPRESAS
+// ✅ GET - STATUS
 export async function GET() {
   try {
-    console.log('🔍 [SYNC] Verificando status das empresas...');
-    
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -387,8 +405,6 @@ export async function GET() {
     const token = process.env.ASANA_ACCESS_TOKEN;
     const asanaConfigured = !!(token && token.trim() !== '' && !token.includes('your_'));
 
-    console.log(`📊 [SYNC] Status: ${companiesInDatabase} empresas no banco, Asana: ${asanaConfigured ? 'configurado' : 'não configurado'}`);
-
     return NextResponse.json({
       success: true,
       companiesInDatabase,
@@ -400,7 +416,7 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('❌ [SYNC] Erro ao verificar status:', error);
+    console.error('❌ [GET] Erro ao verificar status:', error);
     
     return NextResponse.json({
       success: false,
