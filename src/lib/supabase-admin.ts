@@ -1,60 +1,7 @@
-// src/lib/supabase-admin.ts - ADMIN API COM VALIDAÇÃO ROBUSTA
+// src/lib/supabase-admin.ts - ADMIN API CORRIGIDA (SEM ERROS TYPESCRIPT)
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ VALIDAÇÃO EXPLÍCITA DAS VARIÁVEIS
-function validateEnvironment(): { url: string; serviceKey: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  console.log('🔍 Validando variáveis de ambiente...');
-  console.log('URL configurada:', !!url ? '✅' : '❌');
-  console.log('Service Key configurada:', !!serviceKey ? '✅' : '❌');
-
-  if (!url || url.includes('your_') || url === '') {
-    throw new Error(`
-❌ NEXT_PUBLIC_SUPABASE_URL não configurada!
-
-📋 Para corrigir:
-1. Acesse: https://supabase.com/dashboard
-2. Selecione seu projeto
-3. Vá em: Settings > API
-4. Copie o "Project URL"
-5. Adicione no .env.local: NEXT_PUBLIC_SUPABASE_URL=sua_url_aqui
-6. Reinicie: npm run dev
-    `);
-  }
-
-  if (!serviceKey || serviceKey.includes('your_') || serviceKey === '') {
-    throw new Error(`
-❌ SUPABASE_SERVICE_ROLE_KEY não configurada!
-
-📋 Para corrigir:
-1. Acesse: https://supabase.com/dashboard
-2. Selecione seu projeto  
-3. Vá em: Settings > API
-4. Copie a "service_role" key (⚠️ NÃO a anon key!)
-5. Adicione no .env.local: SUPABASE_SERVICE_ROLE_KEY=sua_service_key_aqui
-6. Reinicie: npm run dev
-
-⚠️ IMPORTANTE: Use a SERVICE_ROLE key, não a ANON key!
-    `);
-  }
-
-  return { url, serviceKey };
-}
-
-// ✅ CRIAR CLIENTE ADMIN COM VALIDAÇÃO
-function createAdminClient() {
-  const { url, serviceKey } = validateEnvironment();
-  
-  return createClient(url, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
-
+// ✅ INTERFACES INLINE (SEM IMPORTS EXTERNOS)
 export interface CreateUserData {
   email: string;
   password: string;
@@ -70,25 +17,152 @@ export interface UserCreationResult {
   error?: string;
 }
 
-// ✅ CRIAR USUÁRIO COM VALIDAÇÃO ROBUSTA
+// ✅ VALIDAÇÃO ROBUSTA DAS VARIÁVEIS
+function validateEnvironment(): { url: string; serviceKey: string } {
+  console.log('🔍 Validando variáveis de ambiente...');
+  
+  // Múltiplas formas de acessar as variáveis
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+
+  // Debug detalhado das variáveis
+  console.log('🔍 DEBUG ENV VARS:');
+  console.log('- NEXT_PUBLIC_SUPABASE_URL exists:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
+  console.log('- SUPABASE_SERVICE_ROLE_KEY exists:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+  console.log('- All ENV keys:', Object.keys(process.env).filter(k => k.includes('SUPABASE')));
+  
+  // Validação mais permissiva da URL
+  if (!url || url.length < 10 || url.includes('your_') || url === 'dummy') {
+    throw new Error(`
+❌ SUPABASE URL não configurada!
+
+📋 Variável encontrada: ${url || 'NENHUMA'}
+
+Para corrigir:
+1. Acesse: https://supabase.com/dashboard
+2. Selecione seu projeto
+3. Vá em: Settings > API  
+4. Copie o "Project URL"
+5. Adicione no .env.local: NEXT_PUBLIC_SUPABASE_URL=sua_url_aqui
+6. Reinicie: npm run dev
+    `);
+  }
+
+  // Validação mais permissiva da Service Key
+  if (!serviceKey || serviceKey.length < 50 || serviceKey.includes('your_') || serviceKey === 'dummy') {
+    throw new Error(`
+❌ SERVICE_ROLE_KEY não configurada!
+
+📋 Variável encontrada: ${serviceKey ? `${serviceKey.substring(0, 20)}...` : 'NENHUMA'}
+
+Para corrigir:
+1. Acesse: https://supabase.com/dashboard  
+2. Selecione seu projeto
+3. Vá em: Settings > API
+4. Copie a "service_role" key (⚠️ NÃO a anon key!)
+5. Adicione no .env.local: SUPABASE_SERVICE_ROLE_KEY=sua_service_key_aqui
+6. Reinicie: npm run dev
+
+⚠️ IMPORTANTE: Use a SERVICE_ROLE key, não a ANON key!
+⚠️ A key deve começar com "eyJ" e ter ~200+ caracteres
+    `);
+  }
+
+  console.log('✅ URL configurada:', url.substring(0, 30) + '...');
+  console.log('✅ Service Key configurada:', serviceKey.substring(0, 20) + '...');
+
+  return { url, serviceKey };
+}
+
+// ✅ CRIAR CLIENTE ADMIN COM VALIDAÇÃO CORRIGIDA
+function createAdminClient() {
+  try {
+    const { url, serviceKey } = validateEnvironment();
+    
+    console.log('🔄 Criando cliente admin...');
+    
+    const client = createClient(url, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      db: {
+        schema: 'public'
+      }
+    });
+
+    console.log('✅ Cliente admin criado com sucesso');
+    return client;
+  } catch (error) {
+    console.error('❌ Erro ao criar cliente admin:', error);
+    throw error;
+  }
+}
+
+// ✅ FUNÇÕES HELPER INLINE
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function normalizeEmail(email: string): string {
+  return email.toLowerCase().trim();
+}
+
+function validateUserData(userData: CreateUserData): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!userData.email || !userData.email.trim()) {
+    errors.push('Email é obrigatório');
+  } else if (!isValidEmail(userData.email)) {
+    errors.push('Email inválido');
+  }
+
+  if (!userData.password) {
+    errors.push('Senha é obrigatória');
+  } else if (userData.password.length < 6) {
+    errors.push('Senha deve ter pelo menos 6 caracteres');
+  }
+
+  if (!userData.fullName || !userData.fullName.trim()) {
+    errors.push('Nome completo é obrigatório');
+  }
+
+  if (!userData.companyId || !userData.companyId.trim()) {
+    errors.push('Empresa é obrigatória');
+  }
+
+  if (!['admin', 'manager', 'operator', 'viewer'].includes(userData.role)) {
+    errors.push('Papel de usuário inválido');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// ✅ CRIAR USUÁRIO COM TYPE SAFETY COMPLETO
 export const createUserWithProfile = async (userData: CreateUserData): Promise<UserCreationResult> => {
   try {
     console.log('🔄 Iniciando criação de usuário:', userData.email);
 
-    // Validar dados de entrada
-    if (!userData.email || !userData.password || !userData.fullName || !userData.companyId) {
-      throw new Error('Todos os campos são obrigatórios');
+    // Validar dados usando função robusta
+    const validation = validateUserData(userData);
+    if (!validation.valid) {
+      throw new Error(`Dados inválidos: ${validation.errors.join(', ')}`);
     }
 
-    if (userData.password.length < 6) {
-      throw new Error('Senha deve ter pelo menos 6 caracteres');
-    }
+    // Normalizar email
+    const normalizedEmail = normalizeEmail(userData.email);
+    console.log('📧 Email normalizado:', normalizedEmail);
 
-    // Criar cliente admin com validação
+    // Criar cliente admin com debugging
+    console.log('🔄 Criando cliente admin...');
     const supabaseAdmin = createAdminClient();
+    console.log('✅ Cliente admin criado');
 
     // 1. Verificar se empresa existe
-    console.log('🔍 Verificando se empresa existe:', userData.companyId);
+    console.log('🔍 Verificando empresa:', userData.companyId);
     
     const { data: company, error: companyError } = await supabaseAdmin
       .from('companies')
@@ -97,28 +171,45 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
       .single();
 
     if (companyError || !company) {
+      console.error('❌ Empresa não encontrada:', companyError);
       throw new Error(`Empresa não encontrada: ${userData.companyId}`);
     }
 
-    console.log('✅ Empresa encontrada:', company.name);
+    console.log('✅ Empresa encontrada:', company.display_name);
 
-    // 2. Verificar se email já existe
+    // 2. Verificar se email já existe (TYPE-SAFE)
     console.log('🔍 Verificando se email já existe...');
     
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const emailExists = existingUser.users.some(u => u.email === userData.email);
+    const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    
+    if (listError) {
+      console.error('❌ Erro ao listar usuários:', listError);
+      throw new Error(`Erro ao verificar usuários existentes: ${listError.message}`);
+    }
+    
+    // ✅ COMPARAÇÃO TYPE-SAFE (SEM ERROS TYPESCRIPT)
+    const emailExists = existingUsers.users.some((user) => {
+      // Verificação robusta do email
+      if (!user || typeof user !== 'object') return false;
+      if (!('email' in user) || !user.email) return false;
+      if (typeof user.email !== 'string') return false;
+      
+      return normalizeEmail(user.email) === normalizedEmail;
+    });
     
     if (emailExists) {
       throw new Error('Este email já está cadastrado no sistema');
     }
 
+    console.log('✅ Email disponível:', normalizedEmail);
+
     // 3. Criar usuário no auth
     console.log('🔄 Criando usuário no Supabase Auth...');
     
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: userData.email,
+      email: normalizedEmail,
       password: userData.password,
-      email_confirm: true,
+      email_confirm: true, // ✅ Confirmar email automaticamente
       user_metadata: {
         full_name: userData.fullName,
         company_id: userData.companyId,
@@ -137,7 +228,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
 
     console.log('✅ Usuário criado no auth:', authData.user.id);
 
-    // 4. Criar profile na tabela user_profiles
+    // 4. Criar profile na tabela user_profiles  
     console.log('🔄 Criando profile do usuário...');
     
     const { data: profileData, error: profileError } = await supabaseAdmin
@@ -145,7 +236,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
       .upsert({
         id: authData.user.id,
         company_id: userData.companyId,
-        email: userData.email,
+        email: normalizedEmail,
         full_name: userData.fullName,
         role: userData.role,
         active: true
@@ -167,8 +258,9 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
       // Não falhar completamente se o profile não for criado
     }
 
-    console.log('✅ Usuário criado com sucesso:', userData.email);
+    console.log('✅ Usuário criado com sucesso:', normalizedEmail);
 
+    // ✅ RETURN TYPE-SAFE
     return {
       success: true,
       user: authData.user,
