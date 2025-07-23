@@ -1,10 +1,12 @@
-// src/app/dashboard/page.tsx - LAYOUT NOVO COM FUNCIONALIDADES ADMIN PRESERVADAS
+// src/app/dashboard/page.tsx - DASHBOARD COM SISTEMA DE NOTIFICAÇÕES INTEGRADO
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
+import { NotificationsButton } from '@/components/NotificationsButton';
+import { NotificationsStatusIndicator } from '@/components/NotificationsStatusIndicator';
 import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp, Settings } from 'lucide-react';
 import { MobileNavigation } from '@/components/MobileNavigation';
 
@@ -173,14 +175,12 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* ✅ HEADER PREMIUM COM NAVEGAÇÃO E FUNCIONALIDADES ADMIN */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200/50 shadow-lg">
-        <div className="absolute inset-0 bg-gradient-to-r from-gray-50 via-white to-red-50/30" />
-        
-        <div className="relative w-full px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
+      {/* ✅ HEADER PREMIUM COM NAVEGAÇÃO E SISTEMA DE NOTIFICAÇÕES */}
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200/50 shadow-sm">
+        <div className="max-w-[1600px] mx-auto">
+          <div className="flex items-center justify-between px-6 py-4">
             
-            {/* ✅ LOGO + EMPRESA DESTACADA COM BACKGROUND VERMELHO (ESQUERDA) */}
+        {/* ✅ LOGO + EMPRESA DESTACADA COM BACKGROUND VERMELHO (ESQUERDA) */}
             <div className="flex items-center space-x-6">
               <div className="relative">
                 <img 
@@ -206,8 +206,8 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ✅ NAVEGAÇÃO CENTRAL SEXY - SEM BACKGROUND CINZA */}
-            <div className="hidden md:flex items-center space-x-6">
+            {/* ✅ NAVEGAÇÃO CENTRAL */}
+            <div className="hidden lg:flex items-center space-x-2">
               <button
                 onClick={() => scrollToSection('resumo')}
                 className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 border-2 ${
@@ -217,7 +217,7 @@ export default function DashboardPage() {
                 }`}
               >
                 <BarChart3 size={18} />
-                <span>Resumo Operacional</span>
+                <span>Resumo Executivo</span>
               </button>
               
               <button
@@ -245,7 +245,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* ✅ USER INFO + ACTIONS (DIREITA) - COM FUNCIONALIDADES ADMIN */}
+            {/* ✅ USER INFO + NOTIFICAÇÕES + ACTIONS (DIREITA) */}
             <div className="flex items-center space-x-4">
               
               {/* ✅ NAVEGAÇÃO MOBILE */}
@@ -254,7 +254,10 @@ export default function DashboardPage() {
                 onSectionChange={(section) => scrollToSection(section)}
               />
               
-              {/* Status de Conexão */}
+              {/* ✅ BOTÃO DE NOTIFICAÇÕES - ADICIONADO AO LADO ESQUERDO DO STATUS */}
+              <NotificationsButton userId={user?.id || user?.email || 'default-user'} />
+              
+              {/* ✅ Status de Conexão */}
               <div className="hidden sm:flex items-center space-x-2">
                 {configStatus?.tokenConfigured ? (
                   <Wifi size={16} className="text-green-500" />
@@ -398,6 +401,9 @@ export default function DashboardPage() {
           )}
         </div>
       </footer>
+
+      {/* ✅ INDICADOR DE STATUS DAS NOTIFICAÇÕES */}
+      <NotificationsStatusIndicator />
     </div>
   );
 }
