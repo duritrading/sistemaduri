@@ -1,11 +1,11 @@
-// src/app/dashboard/page.tsx - DASHBOARD FINAL COM NAVEGAÇÃO PERFEITA
+// src/app/dashboard/page.tsx - LAYOUT NOVO COM FUNCIONALIDADES ADMIN PRESERVADAS
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
-import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp } from 'lucide-react';
+import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp, Settings } from 'lucide-react';
 import { MobileNavigation } from '@/components/MobileNavigation';
 
 export default function DashboardPage() {
@@ -17,17 +17,42 @@ export default function DashboardPage() {
   const { user, profile, company, signOut, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // ✅ VERIFICAR AUTENTICAÇÃO
+  // ✅ FUNÇÃO PARA OBTER EMPRESA EFETIVA (ADMIN PODE TER SELECIONADO OUTRA)
+  const getEffectiveCompany = () => {
+    if (profile?.role === 'admin') {
+      try {
+        const adminSelected = localStorage.getItem('admin_selected_company');
+        if (adminSelected) {
+          const selectedCompany = JSON.parse(adminSelected);
+          return selectedCompany;
+        }
+      } catch (e) {
+        console.warn('Erro ao ler empresa selecionada pelo admin:', e);
+      }
+    }
+    return company; // Retorna empresa padrão do usuário
+  };
+
+  // ✅ VERIFICAR AUTENTICAÇÃO E REDIRECIONAR ADMIN SEM SELEÇÃO
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login');
       return;
     }
     
-    if (user && company) {
+    if (user && profile && company) {
+      // ✅ SE É ADMIN E NÃO TEM EMPRESA SELECIONADA, REDIRECIONAR PARA SELEÇÃO
+      if (profile.role === 'admin') {
+        const adminSelected = localStorage.getItem('admin_selected_company');
+        if (!adminSelected) {
+          router.push('/select-company');
+          return;
+        }
+      }
+      
       initializeDashboard();
     }
-  }, [user, company, authLoading, router]);
+  }, [user, profile, company, authLoading, router]);
 
   const initializeDashboard = async () => {
     try {
@@ -84,18 +109,23 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ LOGOUT COM CONFIRMAÇÃO
-  const handleSignOut = async () => {
+  // ✅ HANDLE LOGOUT COM LIMPEZA DE ADMIN
+  const handleLogout = async () => {
     try {
+      // Limpar seleção de empresa do admin
+      localStorage.removeItem('admin_selected_company');
       await signOut();
-      router.push('/login');
     } catch (error) {
-      console.error('Erro ao fazer logout:', error);
+      console.error('Erro no logout:', error);
     }
   };
 
-  // ✅ VERIFICAR SE É ADMIN
+  // ✅ VERIFICAR ROLES
   const isAdmin = profile?.role === 'admin';
+  const isManager = profile?.role === 'manager' || profile?.role === 'admin';
+
+  // ✅ OBTER EMPRESA EFETIVA PARA O DASHBOARD
+  const effectiveCompany = getEffectiveCompany();
 
   // ✅ Loading Premium
   if (authLoading || loading) {
@@ -107,7 +137,7 @@ export default function DashboardPage() {
               <Activity size={32} className="text-white animate-pulse" />
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Preparando Dashboard</h3>
-            <p className="text-gray-600">Carregando dados de {company?.display_name}...</p>
+            <p className="text-gray-600">Carregando dados de {effectiveCompany?.display_name || effectiveCompany?.displayName}...</p>
           </div>
           <div className="flex items-center justify-center space-x-2">
             <span className="font-medium">Duri Trading</span>
@@ -143,14 +173,14 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* ✅ HEADER PREMIUM COM NAVEGAÇÃO E REORGANIZAÇÃO */}
+      {/* ✅ HEADER PREMIUM COM NAVEGAÇÃO E FUNCIONALIDADES ADMIN */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200/50 shadow-lg">
         <div className="absolute inset-0 bg-gradient-to-r from-gray-50 via-white to-red-50/30" />
         
         <div className="relative w-full px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             
-            {/* ✅ LOGO + BRAND + EMPRESA DESTACADA (ESQUERDA) */}
+            {/* ✅ LOGO + EMPRESA DESTACADA COM BACKGROUND VERMELHO (ESQUERDA) */}
             <div className="flex items-center space-x-6">
               <div className="relative">
                 <img 
@@ -160,9 +190,19 @@ export default function DashboardPage() {
                 />
               </div>
               
-              
-              <div className="h">
-                
+              {/* Company Info Destacada */}
+              <div className="hidden sm:flex items-center bg-gradient-to-r from-[#b51c26] to-[#dc2626] px-4 py-2 rounded-xl shadow-lg">
+                <Building2 size={18} className="text-white mr-3" />
+                <div className="flex flex-col">
+                  <span className="text-white font-bold text-sm leading-tight">
+                    {effectiveCompany?.display_name || effectiveCompany?.displayName}
+                  </span>
+                  {isAdmin && (
+                    <span className="text-red-100 text-xs font-medium">
+                      Admin View
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -205,7 +245,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* ✅ USER INFO + ACTIONS (DIREITA) - EMAIL E CARGO REORGANIZADOS */}
+            {/* ✅ USER INFO + ACTIONS (DIREITA) - COM FUNCIONALIDADES ADMIN */}
             <div className="flex items-center space-x-4">
               
               {/* ✅ NAVEGAÇÃO MOBILE */}
@@ -225,6 +265,29 @@ export default function DashboardPage() {
                   {configStatus?.usingMockData ? 'Demo' : 'Conectado'}
                 </span>
               </div>
+
+              {/* ✅ BOTÕES ADMIN E SETTINGS ANTES DO USER INFO */}
+              {isAdmin && (
+                <button
+                  onClick={() => router.push('/admin/users')}
+                  className="flex items-center space-x-2 px-4 py-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-xl transition-all duration-200 border border-purple-200/50"
+                  title="Administrar usuários do sistema"
+                >
+                  <Users size={18} />
+                  <span className="text-sm font-medium hidden lg:inline">Admin</span>
+                </button>
+              )}
+
+              {isManager && (
+                <button
+                  onClick={() => {/* Implementar depois */}}
+                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200"
+                  title="Configurações da empresa"
+                >
+                  <Settings size={18} />
+                  <span className="text-sm font-medium hidden lg:inline">Config</span>
+                </button>
+              )}
 
               {/* ✅ USER INFO REORGANIZADO - EMAIL PRINCIPAL E CARGO EMBAIXO */}
               <div className="flex items-center space-x-3">
@@ -249,17 +312,27 @@ export default function DashboardPage() {
                   {/* Dropdown Menu */}
                   <div className="absolute right-0 top-12 w-48 bg-white border border-gray-200 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
                     {isAdmin && (
-                      <button
-                        onClick={() => router.push('/admin/users')}
-                        className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl transition-colors"
-                      >
-                        <Users size={16} />
-                        <span>Gerenciar Usuários</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() => router.push('/admin/users')}
+                          className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        >
+                          <Users size={16} />
+                          <span>Gerenciar Usuários</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => router.push('/select-company')}
+                          className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        >
+                          <Building2 size={16} />
+                          <span>Trocar Empresa</span>
+                        </button>
+                      </>
                     )}
                     
                     <button
-                      onClick={handleSignOut}
+                      onClick={handleLogout}
                       className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-b-xl transition-colors"
                     >
                       <LogOut size={16} />
@@ -273,10 +346,10 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ✅ MAIN CONTENT - HERO SIMPLIFICADO E PRÓXIMO DO HEADER */}
+      {/* ✅ MAIN CONTENT - HERO SIMPLIFICADO COM EMPRESA EFETIVA */}
       <main className="px-6 lg:px-8 py-16">
         
-        {/* ✅ SEÇÃO HERO SIMPLIFICADA - SEM BACKGROUND */}
+        {/* ✅ SEÇÃO HERO SIMPLIFICADA COM EMPRESA EFETIVA */}
         <section className="mb-12">
           <div className="text-center">
             {/* Título Principal Limpo */}
@@ -286,25 +359,33 @@ export default function DashboardPage() {
               </span>
               <br />
               <span className="bg-gradient-to-r from-[#b51c26] to-[#dc2626] bg-clip-text text-transparent">
-                {company?.display_name}
+                {effectiveCompany?.display_name || effectiveCompany?.displayName}
               </span>
             </h1>
             
-            {/* Status Atualizado */}
-            <div className="flex items-center justify-center space-x-2 mt-6">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-lg text-gray-600 font-medium">Atualizado em tempo real</span>
+            {/* Status Atualizado com indicador de Admin */}
+            <div className="flex items-center justify-center space-x-4 mt-6">
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-lg text-gray-600 font-medium">Atualizado em tempo real</span>
+              </div>
+              {isAdmin && (
+                <div className="flex items-center space-x-2">
+                  <Shield size={16} className="text-red-400" />
+                  <span className="text-sm text-red-500 font-medium">Visualização de Administrador</span>
+                </div>
+              )}
             </div>
           </div>
         </section>
 
-        {/* ✅ DASHBOARD PRINCIPAL COM LARGURA MÁXIMA OTIMIZADA */}
+        {/* ✅ DASHBOARD PRINCIPAL COM EMPRESA EFETIVA */}
         <div className="max-w-[1600px] mx-auto">
-          <MaritimeDashboard companyFilter={company?.name} />
+          <MaritimeDashboard companyFilter={effectiveCompany?.name} />
         </div>
       </main>
 
-      {/* ✅ FOOTER PREMIUM */}
+      {/* ✅ FOOTER PREMIUM COM INDICADOR ADMIN */}
       <footer className="relative mt-16 py-8 bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900">
         <div className="container mx-auto px-6 text-center">
           <p className="text-white/80 text-sm">
@@ -312,7 +393,7 @@ export default function DashboardPage() {
           </p>
           {isAdmin && (
             <p className="text-red-300 text-xs mt-1">
-              Acesso de Administrador Ativo
+              Acesso de Administrador Ativo - Empresa: {effectiveCompany?.display_name || effectiveCompany?.displayName}
             </p>
           )}
         </div>
