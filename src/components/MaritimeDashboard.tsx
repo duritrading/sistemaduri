@@ -292,21 +292,23 @@ export function MaritimeDashboard({
   return (
     <div className="space-y-12">
       {/* ✅ COMPONENTE KPI - Seção de KPIs e Filtros */}
-      <KPIDashboard
-        trackings={trackings}
-        filteredTrackings={filteredTrackings}
-        filters={filters}
-        filterOptions={filterOptions}
-        showFilters={showFilters}
-        hasActiveFilters={hasActiveFilters}
-        onFilterChange={handleFilterChange}
-        onToggleFilters={toggleFilters}
-        onClearFilters={clearFilters}
-        onRefreshData={refreshData}
-      />
+      <div id="kpi-section">
+        <KPIDashboard
+          trackings={trackings}
+          filteredTrackings={filteredTrackings}
+          filters={filters}
+          filterOptions={filterOptions}
+          showFilters={showFilters}
+          hasActiveFilters={hasActiveFilters}
+          onFilterChange={handleFilterChange}
+          onToggleFilters={toggleFilters}
+          onClearFilters={clearFilters}
+          onRefreshData={refreshData}
+        />
+      </div>
 
       {/* ✅ COMPONENTE CHARTS - Seção de Gráficos (SEM HEADER ANTIGO) */}
-      <div className="pt-16">
+      <div className="pt-16" id="charts-section">
         <ChartsDashboard
           filteredTrackings={filteredTrackings}
           loading={false}
@@ -314,7 +316,7 @@ export function MaritimeDashboard({
       </div>
 
       {/* ✅ COMPONENTE OPERATIONS - Seção de Operações (SEM HEADER ANTIGO) */}
-      <div className="pt-16">
+      <div className="pt-16" id="operations-section">
         <OperationsDashboard
           filteredTrackings={filteredTrackings}
           hasActiveFilters={hasActiveFilters}

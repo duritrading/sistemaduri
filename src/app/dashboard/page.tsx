@@ -1,11 +1,12 @@
-// src/app/dashboard/page.tsx - COM BOTÃO ADMIN PARA GESTÃO DE USUÁRIOS
+// src/app/dashboard/page.tsx - DASHBOARD FINAL COM NAVEGAÇÃO PERFEITA
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
-import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, Settings } from 'lucide-react';
+import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp } from 'lucide-react';
+import { MobileNavigation } from '@/components/MobileNavigation';
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -15,11 +16,6 @@ export default function DashboardPage() {
   
   const { user, profile, company, signOut, loading: authLoading } = useAuth();
   const router = useRouter();
-
-  // ✅ Refs para navegação suave
-  const resumoRef = useRef<HTMLDivElement>(null);
-  const graficosRef = useRef<HTMLDivElement>(null);
-  const operacoesRef = useRef<HTMLDivElement>(null);
 
   // ✅ VERIFICAR AUTENTICAÇÃO
   useEffect(() => {
@@ -60,43 +56,49 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ HANDLE LOGOUT
-  const handleLogout = async () => {
+  // ✅ NAVEGAÇÃO SUAVE ENTRE SEÇÕES COM OFFSETS CORRETOS
+  const scrollToSection = (section: 'resumo' | 'graficos' | 'operacoes') => {
+    setActiveSection(section);
+    
+    let targetId = '';
+    let offset = 100; // Altura do header
+    
+    if (section === 'resumo') {
+      targetId = 'kpi-section';
+      offset = 100;
+    } else if (section === 'graficos') {
+      targetId = 'charts-section';
+      offset = 80; // Menos offset para ir mais para o meio
+    } else if (section === 'operacoes') {
+      targetId = 'operations-section';
+      offset = 100;
+    }
+    
+    const element = document.getElementById(targetId);
+    if (element) {
+      const elementTop = element.offsetTop;
+      window.scrollTo({
+        top: elementTop - offset,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // ✅ LOGOUT COM CONFIRMAÇÃO
+  const handleSignOut = async () => {
     try {
       await signOut();
+      router.push('/login');
     } catch (error) {
-      console.error('Erro no logout:', error);
+      console.error('Erro ao fazer logout:', error);
     }
   };
 
   // ✅ VERIFICAR SE É ADMIN
   const isAdmin = profile?.role === 'admin';
-  const isManager = profile?.role === 'manager' || profile?.role === 'admin';
 
-  // ✅ Loading inicial do auth
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
-        <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center mx-auto mb-4">
-              <Activity size={32} className="text-white animate-pulse" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Carregando Sistema</h3>
-            <p className="text-gray-600">Verificando autenticação...</p>
-          </div>
-          <div className="flex items-center justify-center space-x-2">
-            <div className="w-2 h-2 bg-[#b51c26] rounded-full animate-bounce"></div>
-            <div className="w-2 h-2 bg-[#b51c26] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-            <div className="w-2 h-2 bg-[#b51c26] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Loading do dashboard
-  if (loading) {
+  // ✅ Loading Premium
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20 flex items-center justify-center">
         <div className="bg-white/80 backdrop-blur-sm border border-gray-200/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
@@ -140,15 +142,15 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/20">
-      {/* ✅ HEADER PREMIUM COM INFORMAÇÕES DO USUÁRIO */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200/50 shadow-lg">
+    <div className="min-h-screen bg-white">
+      {/* ✅ HEADER PREMIUM COM NAVEGAÇÃO E REORGANIZAÇÃO */}
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200/50 shadow-lg">
         <div className="absolute inset-0 bg-gradient-to-r from-gray-50 via-white to-red-50/30" />
         
-        <div className="relative w-full px-4 sm:px-6 lg:px-8">
+        <div className="relative w-full px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             
-            {/* Logo + Brand */}
+            {/* ✅ LOGO + BRAND + EMPRESA DESTACADA (ESQUERDA) */}
             <div className="flex items-center space-x-6">
               <div className="relative">
                 <img 
@@ -158,147 +160,153 @@ export default function DashboardPage() {
                 />
               </div>
               
-              {/* Company + User Info */}
-              <div className="hidden sm:block">
-                <div className="flex items-center space-x-4">
-                  <div className="bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-4 py-2">
-                    <div className="flex items-center space-x-3">
-                      <Building2 size={16} className="text-[#b51c26]" />
-                      <span className="font-medium text-gray-900">{company?.display_name}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-4 py-2">
-                    <div className="flex items-center space-x-3">
-                      <User size={16} className="text-gray-600" />
-                      <div>
-                        <div className="font-medium text-gray-900 text-sm">
-                          {profile?.full_name || user?.email?.split('@')[0]}
-                        </div>
-                        <div className="text-xs text-gray-500 capitalize">{profile?.role}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              
+              <div className="h">
+                
               </div>
             </div>
 
-            {/* Actions */}
+            {/* ✅ NAVEGAÇÃO CENTRAL SEXY - SEM BACKGROUND CINZA */}
+            <div className="hidden md:flex items-center space-x-6">
+              <button
+                onClick={() => scrollToSection('resumo')}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 border-2 ${
+                  activeSection === 'resumo'
+                    ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-xl border-[#b51c26] scale-105'
+                    : 'text-gray-700 border-gray-200 hover:border-[#b51c26] hover:text-[#b51c26] hover:shadow-lg hover:scale-105 bg-white/80 backdrop-blur-sm'
+                }`}
+              >
+                <BarChart3 size={18} />
+                <span>Resumo Operacional</span>
+              </button>
+              
+              <button
+                onClick={() => scrollToSection('graficos')}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 border-2 ${
+                  activeSection === 'graficos'
+                    ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-xl border-[#b51c26] scale-105'
+                    : 'text-gray-700 border-gray-200 hover:border-[#b51c26] hover:text-[#b51c26] hover:shadow-lg hover:scale-105 bg-white/80 backdrop-blur-sm'
+                }`}
+              >
+                <TrendingUp size={18} />
+                <span>Gráficos Operacionais</span>
+              </button>
+              
+              <button
+                onClick={() => scrollToSection('operacoes')}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 border-2 ${
+                  activeSection === 'operacoes'
+                    ? 'bg-gradient-to-r from-[#b51c26] to-[#dc2626] text-white shadow-xl border-[#b51c26] scale-105'
+                    : 'text-gray-700 border-gray-200 hover:border-[#b51c26] hover:text-[#b51c26] hover:shadow-lg hover:scale-105 bg-white/80 backdrop-blur-sm'
+                }`}
+              >
+                <List size={18} />
+                <span>Operações Detalhadas</span>
+              </button>
+            </div>
+
+            {/* ✅ USER INFO + ACTIONS (DIREITA) - EMAIL E CARGO REORGANIZADOS */}
             <div className="flex items-center space-x-4">
-              {/* Status Connection */}
-              <div className="hidden md:flex items-center space-x-2 bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-3 py-2">
+              
+              {/* ✅ NAVEGAÇÃO MOBILE */}
+              <MobileNavigation 
+                activeSection={activeSection}
+                onSectionChange={(section) => scrollToSection(section)}
+              />
+              
+              {/* Status de Conexão */}
+              <div className="hidden sm:flex items-center space-x-2">
                 {configStatus?.tokenConfigured ? (
                   <Wifi size={16} className="text-green-500" />
                 ) : (
                   <WifiOff size={16} className="text-amber-500" />
                 )}
-                <span className="text-sm font-medium text-gray-700">
-                  {configStatus?.tokenConfigured ? 'Online' : 'Configurando'}
+                <span className="text-xs text-gray-500 hidden lg:block">
+                  {configStatus?.usingMockData ? 'Demo' : 'Conectado'}
                 </span>
               </div>
 
-              {/* ✅ ADMIN BUTTON - APENAS PARA ADMINS */}
-              {isAdmin && (
-                <button
-                  onClick={() => router.push('/admin/users')}
-                  className="flex items-center space-x-2 px-4 py-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-xl transition-all duration-200 border border-purple-200/50"
-                  title="Administrar usuários do sistema"
-                >
-                  <Users size={18} />
-                  <span className="text-sm font-medium hidden sm:inline">Admin</span>
-                </button>
-              )}
+              {/* ✅ USER INFO REORGANIZADO - EMAIL PRINCIPAL E CARGO EMBAIXO */}
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <div className="text-sm font-medium text-gray-900">{user?.email}</div>
+                  <div className="flex items-center justify-end space-x-1">
+                    {isAdmin && <Shield size={12} className="text-red-400" />}
+                    <span className="text-xs text-gray-500 capitalize">
+                      {profile?.role === 'admin' ? 'Administrador' : 
+                       profile?.role === 'manager' ? 'Gerente' :
+                       profile?.role === 'operator' ? 'Operador' : 'Visualizador'}
+                    </span>
+                  </div>
+                </div>
 
-              {/* ✅ SETTINGS BUTTON - PARA MANAGERS E ADMINS */}
-              {isManager && (
-                <button
-                  onClick={() => {/* Implementar depois */}}
-                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200"
-                  title="Configurações da empresa"
-                >
-                  <Settings size={18} />
-                  <span className="text-sm font-medium hidden sm:inline">Config</span>
-                </button>
-              )}
-
-              {/* Profile Badge com Role */}
-              <div className="flex items-center space-x-2 bg-white/70 backdrop-blur-sm border border-gray-200/50 rounded-xl px-3 py-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  profile?.role === 'admin' ? 'bg-red-500' :
-                  profile?.role === 'manager' ? 'bg-purple-500' :
-                  profile?.role === 'operator' ? 'bg-blue-500' :
-                  'bg-gray-500'
-                }`}></div>
-                <div className="flex items-center space-x-2">
-                  {profile?.role === 'admin' && <Shield size={14} className="text-red-500" />}
-                  <span className="text-sm font-medium text-gray-700 capitalize">
-                    {profile?.role}
-                  </span>
+                {/* Avatar + Menu */}
+                <div className="relative group">
+                  <div className="w-10 h-10 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center cursor-pointer group-hover:scale-105 transition-transform">
+                    <User size={18} className="text-white" />
+                  </div>
+                  
+                  {/* Dropdown Menu */}
+                  <div className="absolute right-0 top-12 w-48 bg-white border border-gray-200 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                    {isAdmin && (
+                      <button
+                        onClick={() => router.push('/admin/users')}
+                        className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-t-xl transition-colors"
+                      >
+                        <Users size={16} />
+                        <span>Gerenciar Usuários</span>
+                      </button>
+                    )}
+                    
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-b-xl transition-colors"
+                    >
+                      <LogOut size={16} />
+                      <span>Sair</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Logout Button */}
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
-                title="Sair do sistema"
-              >
-                <LogOut size={18} />
-                <span className="text-sm font-medium hidden sm:inline">Sair</span>
-              </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* ✅ MAIN CONTENT */}
-      <main className="relative">
-        {/* Hero Section Premium */}
-        <section className="relative py-16 bg-gradient-to-br from-gray-900 via-[#1a1a1a] to-gray-900 overflow-hidden">
-          <div className="absolute inset-0 bg-[url('/api/placeholder/1920/400')] bg-cover bg-center opacity-10"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/20 via-transparent to-[#b51c26]/20"></div>
-          
-          <div className="relative container mx-auto px-4 text-center">
-            <div className="flex items-center justify-center space-x-3 mb-4">
-              <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
-              <span className="text-emerald-400 font-medium text-sm tracking-wider uppercase">Tempo Real</span>
-            </div>
-            <h1 className="text-4xl font-bold text-white mb-2">
-              Operações Marítimas
+      {/* ✅ MAIN CONTENT - HERO SIMPLIFICADO E PRÓXIMO DO HEADER */}
+      <main className="px-6 lg:px-8 py-16">
+        
+        {/* ✅ SEÇÃO HERO SIMPLIFICADA - SEM BACKGROUND */}
+        <section className="mb-12">
+          <div className="text-center">
+            {/* Título Principal Limpo */}
+            <h1 className="text-5xl lg:text-6xl font-black mb-4">
+              <span className="bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900 bg-clip-text text-transparent">
+                Sistema de tracking da
+              </span>
+              <br />
+              <span className="bg-gradient-to-r from-[#b51c26] to-[#dc2626] bg-clip-text text-transparent">
+                {company?.display_name}
+              </span>
             </h1>
-            <p className="text-lg text-gray-300 max-w-2xl mx-auto">
-              Monitoramento completo das operações de {company?.display_name} com métricas em tempo real
-            </p>
             
-            {/* User Info no Hero */}
-            <div className="mt-6 flex items-center justify-center space-x-6">
-              <div className="flex items-center space-x-2">
-                <User size={16} className="text-gray-400" />
-                <span className="text-gray-300">{profile?.full_name || user?.email}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Building2 size={16} className="text-gray-400" />
-                <span className="text-gray-300">{company?.display_name}</span>
-              </div>
-              {isAdmin && (
-                <div className="flex items-center space-x-2">
-                  <Shield size={16} className="text-red-400" />
-                  <span className="text-red-300">Administrador</span>
-                </div>
-              )}
+            {/* Status Atualizado */}
+            <div className="flex items-center justify-center space-x-2 mt-6">
+              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-lg text-gray-600 font-medium">Atualizado em tempo real</span>
             </div>
           </div>
         </section>
 
-        {/* Dashboard Principal usando componente existente */}
-        <div ref={resumoRef}>
+        {/* ✅ DASHBOARD PRINCIPAL COM LARGURA MÁXIMA OTIMIZADA */}
+        <div className="max-w-[1600px] mx-auto">
           <MaritimeDashboard companyFilter={company?.name} />
         </div>
       </main>
 
-      {/* Footer Premium */}
+      {/* ✅ FOOTER PREMIUM */}
       <footer className="relative mt-16 py-8 bg-gradient-to-r from-gray-900 via-[#b51c26] to-gray-900">
-        <div className="container mx-auto px-4 text-center">
+        <div className="container mx-auto px-6 text-center">
           <p className="text-white/80 text-sm">
             © 2024 Duri Trading • Sistema de Tracking Marítimo • Usuário: {user?.email}
           </p>
