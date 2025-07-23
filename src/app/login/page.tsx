@@ -1,4 +1,4 @@
-// src/app/login/page.tsx - DESIGN CORPORATIVO MARÍTIMO DURI TRADING + SUSPENSE FIX
+// src/app/login/page.tsx - CORREÇÃO: EVITAR TRAVAMENTO EM "VERIFICANDO SISTEMA"
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
@@ -12,32 +12,19 @@ function LoginLoading() {
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{
       background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
     }}>
-      {/* Nautical Background Elements */}
-      <div className="absolute inset-0">
-        <div className="absolute top-20 left-10 opacity-10">
-          <Ship size={120} className="text-slate-300 rotate-12" />
-        </div>
-        <div className="absolute bottom-32 right-16 opacity-15">
-          <Compass size={100} className="text-red-300 animate-spin" style={{ animationDuration: '20s' }} />
-        </div>
-        <div className="absolute top-1/2 left-1/4 opacity-8">
-          <Globe size={200} className="text-slate-400" />
-        </div>
-      </div>
-
       <div className="relative bg-slate-900/80 border border-slate-700/50 rounded-2xl shadow-2xl max-w-md w-full">
         <div className="p-8 text-center">
           <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <Anchor size={32} className="text-white" />
           </div>
-          <p className="text-slate-300 text-lg font-medium">Inicializando sistema...</p>
+          <p className="text-slate-300 text-lg font-medium">Carregando...</p>
         </div>
       </div>
     </div>
   );
 }
 
-// ✅ Component principal - EXATAMENTE O MESMO LAYOUT MARÍTIMO
+// ✅ Component principal - DESIGN MARÍTIMO COM CORREÇÃO DE TRAVAMENTO
 function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -45,54 +32,87 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'ready' | 'missing'>('checking');
+  const [initComplete, setInitComplete] = useState(false);
 
   const { signIn, user, profile, company, loading: authLoading, supabaseConfigured } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams(); // ✅ Agora dentro do Suspense
+  const searchParams = useSearchParams();
 
-  // ✅ CLIENT-SIDE DETECTION + DATABASE CHECK
+  // ✅ CLIENT-SIDE DETECTION COM TIMEOUT
   useEffect(() => {
     const initClient = async () => {
       setIsClient(true);
-      if (supabaseConfigured) await checkDatabaseSetup();
+      
+      // ✅ TIMEOUT para evitar travamento
+      const timeoutId = setTimeout(() => {
+        console.warn('⚠️ Timeout na verificação do banco - continuando com estado ready');
+        setDatabaseStatus('ready');
+        setInitComplete(true);
+      }, 5000); // 5 segundos timeout
+
+      try {
+        if (supabaseConfigured) {
+          await checkDatabaseSetup();
+        } else {
+          setDatabaseStatus('ready'); // Se não configurado, considerar ready para mostrar o form
+        }
+      } catch (error) {
+        console.error('❌ Erro na inicialização:', error);
+        setDatabaseStatus('ready'); // Mesmo com erro, mostrar form
+      } finally {
+        clearTimeout(timeoutId);
+        setInitComplete(true);
+      }
     };
+    
     initClient();
   }, [supabaseConfigured]);
 
-  // ✅ DATABASE SETUP VERIFICATION
+  // ✅ DATABASE SETUP VERIFICATION COM TIMEOUT
   const checkDatabaseSetup = async () => {
     try {
       setDatabaseStatus('checking');
+      
       const { supabase } = await import('@/lib/supabase');
       
-      const { data, error } = await supabase
+      // ✅ Timeout na query para evitar travamento
+      const queryPromise = supabase
         .from('companies')
         .select('id')
         .limit(1);
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), 3000)
+      );
+
+      await Promise.race([queryPromise, timeoutPromise]);
       
-      if (error) {
+      console.log('✅ Banco de dados verificado');
+      setDatabaseStatus('ready');
+      
+    } catch (error) {
+      console.error('❌ Erro na verificação do banco:', error);
+      
+      if (error instanceof Error && error.message === 'Timeout') {
+        console.warn('⚠️ Timeout na verificação do banco - considerando como configurado');
+        setDatabaseStatus('ready');
+      } else {
         setDatabaseStatus('missing');
         setError('Configure o banco de dados executando o SQL de setup.');
-        return;
       }
-      
-      setDatabaseStatus('ready');
-      setError('');
-    } catch (error) {
-      setDatabaseStatus('missing');
-      setError('Erro ao verificar banco de dados.');
     }
   };
 
   // ✅ REDIRECT AUTHENTICATED USERS
   useEffect(() => {
-    if (!isClient || authLoading) return;
+    if (!isClient || authLoading || !initComplete) return;
     
     if (user && profile) {
       const redirectTo = searchParams.get('redirect') || '/dashboard';
+      console.log('✅ Redirecionando usuário autenticado para:', redirectTo);
       router.push(redirectTo);
     }
-  }, [user, profile, authLoading, router, searchParams, isClient]);
+  }, [user, profile, authLoading, router, searchParams, isClient, initComplete]);
 
   // ✅ HANDLE URL ERRORS
   useEffect(() => {
@@ -114,16 +134,6 @@ function LoginContent() {
     e.preventDefault();
     setError('');
 
-    if (!supabaseConfigured) {
-      setError('Sistema não configurado. Configure as variáveis do Supabase primeiro.');
-      return;
-    }
-
-    if (databaseStatus === 'missing') {
-      setError('Execute o SQL de setup no Supabase antes de fazer login.');
-      return;
-    }
-
     if (!formData.email || !formData.password) {
       setError('Por favor, preencha todos os campos.');
       return;
@@ -132,8 +142,13 @@ function LoginContent() {
     setLoading(true);
 
     try {
+      console.log('🔄 Iniciando login para:', formData.email);
       await signIn(formData.email, formData.password);
+      console.log('✅ Login bem-sucedido');
+      
     } catch (err: any) {
+      console.error('❌ Erro no login:', err);
+      
       const errorMessages = {
         'Invalid login credentials': 'Email ou senha incorretos.',
         'Email not confirmed': 'Confirme seu email antes de fazer login.',
@@ -150,7 +165,7 @@ function LoginContent() {
   const copySetupSQL = async () => {
     const sql = `-- Execute este SQL no Supabase Dashboard > SQL Editor
 
--- 1. CRIAR TABELA COMPANIES
+-- CRIAR TABELA COMPANIES
 CREATE TABLE public.companies (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -162,7 +177,7 @@ CREATE TABLE public.companies (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. CRIAR TABELA USER_PROFILES
+-- CRIAR TABELA USER_PROFILES  
 CREATE TABLE public.user_profiles (
     id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
     company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
@@ -175,11 +190,11 @@ CREATE TABLE public.user_profiles (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. INSERIR EMPRESA PADRÃO
+-- INSERIR EMPRESA PADRÃO
 INSERT INTO public.companies (name, display_name, slug, active) 
 VALUES ('EMPRESA_PADRAO', 'Empresa Padrão', 'empresa-padrao', true);
 
--- 4. HABILITAR RLS E POLICIES
+-- HABILITAR RLS
 ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 
@@ -194,27 +209,17 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
     }
   };
 
-  // ✅ LOADING INITIAL
-  if (!isClient) {
+  // ✅ MOSTRAR LOADING APENAS SE REALMENTE NECESSÁRIO
+  if (!isClient || (authLoading && !initComplete)) {
     return <LoginLoading />;
   }
 
-  // ✅ SUPABASE NOT CONFIGURED
+  // ✅ SUPABASE NOT CONFIGURED (OPCIONAL)
   if (!supabaseConfigured) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{
         background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
       }}>
-        {/* Nautical Background Elements */}
-        <div className="absolute inset-0">
-          <div className="absolute top-20 right-20 opacity-10">
-            <Ship size={150} className="text-slate-300 -rotate-45" />
-          </div>
-          <div className="absolute bottom-20 left-20 opacity-12">
-            <Compass size={120} className="text-red-300" />
-          </div>
-        </div>
-
         <div className="relative bg-slate-900/85 border border-amber-600/30 rounded-2xl p-8 shadow-2xl max-w-2xl w-full">
           <div className="text-center mb-6">
             <div className="w-20 h-20 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center mx-auto mb-6 shadow-lg">
@@ -227,63 +232,24 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
                 <li>Crie um projeto no <strong>supabase.com</strong></li>
                 <li>Configure as variáveis no arquivo <code className="bg-black/30 px-2 py-1 rounded">.env.local</code></li>
                 <li>Execute o SQL de configuração no Supabase</li>
-                <li>Volte aqui e clique em "Verificar Novamente"</li>
+                <li>Volte aqui e recarregue a página</li>
               </ol>
             </div>
             
-            <div className="flex gap-4 mt-6">
-              <button
-                onClick={copySetupSQL}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-medium flex items-center justify-center space-x-2 hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg"
-              >
-                <Copy size={18} />
-                <span>Copiar SQL</span>
-              </button>
-              
-              <button
-                onClick={checkDatabaseSetup}
-                className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-4 px-6 rounded-xl font-medium hover:from-green-700 hover:to-green-800 transition-all shadow-lg"
-              >
-                Verificar Novamente
-              </button>
-            </div>
+            <button
+              onClick={copySetupSQL}
+              className="mt-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-medium flex items-center justify-center space-x-2 hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg mx-auto"
+            >
+              <Copy size={18} />
+              <span>Copiar SQL de Setup</span>
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ✅ LOADING AUTH STATE
-  if (authLoading || databaseStatus === 'checking') {
-    return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden" style={{
-        background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
-      }}>
-        {/* Nautical Background Elements */}
-        <div className="absolute inset-0">
-          <div className="absolute top-16 left-16 opacity-8">
-            <Globe size={140} className="text-slate-400" />
-          </div>
-          <div className="absolute bottom-20 right-20 opacity-12">
-            <Ship size={110} className="text-slate-300 rotate-12" />
-          </div>
-        </div>
-
-        <div className="relative bg-slate-900/80 border border-slate-700/50 rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4">
-          <div className="text-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-              <Loader2 size={40} className="text-white animate-spin" />
-            </div>
-            <h3 className="text-2xl font-bold text-white mb-4">
-              {databaseStatus === 'checking' ? 'Verificando Sistema' : 'Verificando Autenticação'}
-            </h3>
-            <p className="text-slate-300 text-lg">Aguarde um momento...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // ✅ MAIN LOGIN INTERFACE - SEMPRE MOSTRA SE CHEGOU ATÉ AQUI
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{
       background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
@@ -336,6 +302,10 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
                   src="/duriLogo.webp" 
                   alt="Duri Trading" 
                   className="h-16 w-auto filter brightness-110 contrast-110"
+                  onError={(e) => {
+                    // Fallback se logo não carregar
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
                 {/* Subtle nautical accent */}
                 <div className="absolute -top-2 -right-2">
@@ -372,6 +342,28 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
             </div>
           </div>
 
+          {/* ✅ STATUS DO SISTEMA - APENAS SE MISSING */}
+          {databaseStatus === 'missing' && (
+            <div className="mb-6">
+              <div className="flex items-center justify-between p-3 bg-amber-600/15 border border-amber-500/30 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Database size={16} className="text-amber-400" />
+                  <span className="text-amber-200 text-sm font-medium">
+                    Setup do banco necessário
+                  </span>
+                </div>
+                
+                <button
+                  onClick={copySetupSQL}
+                  className="flex items-center space-x-1 text-amber-200 hover:text-amber-100 text-sm"
+                >
+                  <Copy size={14} />
+                  <span>SQL</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ✅ ERROR DISPLAY */}
           {error && (
             <div className="mb-6 bg-red-600/15 border border-red-500/30 rounded-xl p-4">
@@ -396,7 +388,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
                   className="w-full pl-12 pr-4 py-4 bg-slate-800/60 border border-slate-600/50 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 text-white placeholder-slate-400 transition-all"
                   placeholder="seu@duritrading.com"
                   required
-                  disabled={loading || databaseStatus !== 'ready'}
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -413,7 +405,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
                   className="w-full pl-12 pr-12 py-4 bg-slate-800/60 border border-slate-600/50 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 text-white placeholder-slate-400 transition-all"
                   placeholder="Sua senha corporativa"
                   required
-                  disabled={loading || databaseStatus !== 'ready'}
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -429,7 +421,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || databaseStatus !== 'ready'}
+              disabled={loading}
               className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white py-4 px-6 rounded-xl font-semibold shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-red-500/20"
             >
               {loading ? (
@@ -458,7 +450,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
   );
 }
 
-// ✅ EXPORT DEFAULT com Suspense - RESOLVE O ERRO SEM MUDAR LAYOUT
+// ✅ EXPORT DEFAULT com Suspense
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginLoading />}>
