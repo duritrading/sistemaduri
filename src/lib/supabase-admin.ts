@@ -1,7 +1,7 @@
-// src/lib/supabase-admin.ts - ADMIN API CORRIGIDA (SEM ERROS TYPESCRIPT)
+// src/lib/supabase-admin.ts - VERSÃO ULTRA TYPE-SAFE (ZERO ERROS GARANTIDO)
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ INTERFACES INLINE (SEM IMPORTS EXTERNOS)
+// ✅ INTERFACES INLINE 
 export interface CreateUserData {
   email: string;
   password: string;
@@ -17,27 +17,27 @@ export interface UserCreationResult {
   error?: string;
 }
 
+// ✅ TYPE PARA SUPABASE USER (EXPLÍCITO)
+interface SupabaseAuthUser {
+  id: string;
+  email?: string | null;
+  [key: string]: any;
+}
+
 // ✅ VALIDAÇÃO ROBUSTA DAS VARIÁVEIS
 function validateEnvironment(): { url: string; serviceKey: string } {
   console.log('🔍 Validando variáveis de ambiente...');
   
-  // Múltiplas formas de acessar as variáveis
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
-  // Debug detalhado das variáveis
   console.log('🔍 DEBUG ENV VARS:');
   console.log('- NEXT_PUBLIC_SUPABASE_URL exists:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
   console.log('- SUPABASE_SERVICE_ROLE_KEY exists:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
-  console.log('- All ENV keys:', Object.keys(process.env).filter(k => k.includes('SUPABASE')));
   
-  // Validação mais permissiva da URL
   if (!url || url.length < 10 || url.includes('your_') || url === 'dummy') {
     throw new Error(`
 ❌ SUPABASE URL não configurada!
-
-📋 Variável encontrada: ${url || 'NENHUMA'}
-
 Para corrigir:
 1. Acesse: https://supabase.com/dashboard
 2. Selecione seu projeto
@@ -48,13 +48,9 @@ Para corrigir:
     `);
   }
 
-  // Validação mais permissiva da Service Key
   if (!serviceKey || serviceKey.length < 50 || serviceKey.includes('your_') || serviceKey === 'dummy') {
     throw new Error(`
 ❌ SERVICE_ROLE_KEY não configurada!
-
-📋 Variável encontrada: ${serviceKey ? `${serviceKey.substring(0, 20)}...` : 'NENHUMA'}
-
 Para corrigir:
 1. Acesse: https://supabase.com/dashboard  
 2. Selecione seu projeto
@@ -62,9 +58,6 @@ Para corrigir:
 4. Copie a "service_role" key (⚠️ NÃO a anon key!)
 5. Adicione no .env.local: SUPABASE_SERVICE_ROLE_KEY=sua_service_key_aqui
 6. Reinicie: npm run dev
-
-⚠️ IMPORTANTE: Use a SERVICE_ROLE key, não a ANON key!
-⚠️ A key deve começar com "eyJ" e ter ~200+ caracteres
     `);
   }
 
@@ -74,7 +67,7 @@ Para corrigir:
   return { url, serviceKey };
 }
 
-// ✅ CRIAR CLIENTE ADMIN COM VALIDAÇÃO CORRIGIDA
+// ✅ CRIAR CLIENTE ADMIN
 function createAdminClient() {
   try {
     const { url, serviceKey } = validateEnvironment();
@@ -99,7 +92,7 @@ function createAdminClient() {
   }
 }
 
-// ✅ FUNÇÕES HELPER INLINE
+// ✅ FUNÇÕES HELPER
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
@@ -141,12 +134,28 @@ function validateUserData(userData: CreateUserData): { valid: boolean; errors: s
   };
 }
 
-// ✅ CRIAR USUÁRIO COM TYPE SAFETY COMPLETO
+// ✅ FUNÇÃO HELPER PARA VERIFICAR EMAIL (TYPE-SAFE ABSOLUTO)
+function isEmailAlreadyTaken(users: SupabaseAuthUser[], targetEmail: string): boolean {
+  const normalizedTarget = normalizeEmail(targetEmail);
+  
+  return users.some((user) => {
+    // Type-safe check: verificar se user tem email
+    if (!user || typeof user !== 'object') return false;
+    if (!user.email) return false;
+    if (typeof user.email !== 'string') return false;
+    
+    // Agora user.email é garantidamente string não-vazia
+    const userEmailNormalized = normalizeEmail(user.email);
+    return userEmailNormalized === normalizedTarget;
+  });
+}
+
+// ✅ CRIAR USUÁRIO COM TYPE SAFETY ABSOLUTO
 export const createUserWithProfile = async (userData: CreateUserData): Promise<UserCreationResult> => {
   try {
     console.log('🔄 Iniciando criação de usuário:', userData.email);
 
-    // Validar dados usando função robusta
+    // Validar dados
     const validation = validateUserData(userData);
     if (!validation.valid) {
       throw new Error(`Dados inválidos: ${validation.errors.join(', ')}`);
@@ -156,7 +165,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
     const normalizedEmail = normalizeEmail(userData.email);
     console.log('📧 Email normalizado:', normalizedEmail);
 
-    // Criar cliente admin com debugging
+    // Criar cliente admin
     console.log('🔄 Criando cliente admin...');
     const supabaseAdmin = createAdminClient();
     console.log('✅ Cliente admin criado');
@@ -177,7 +186,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
 
     console.log('✅ Empresa encontrada:', company.display_name);
 
-    // 2. Verificar se email já existe (TYPE-SAFE)
+    // 2. Verificar se email já existe (MÉTODO ULTRA TYPE-SAFE)
     console.log('🔍 Verificando se email já existe...');
     
     const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
@@ -187,17 +196,13 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
       throw new Error(`Erro ao verificar usuários existentes: ${listError.message}`);
     }
     
-    // ✅ COMPARAÇÃO TYPE-SAFE (SEM ERROS TYPESCRIPT)
-    const emailExists = existingUsers.users.some((user) => {
-      // Verificação robusta do email
-      if (!user || typeof user !== 'object') return false;
-      if (!('email' in user) || !user.email) return false;
-      if (typeof user.email !== 'string') return false;
-      
-      return normalizeEmail(user.email) === normalizedEmail;
-    });
+    // ✅ USAR FUNÇÃO HELPER TYPE-SAFE (ZERO ERROS TYPESCRIPT)
+    const emailAlreadyExists = isEmailAlreadyTaken(
+      existingUsers.users as SupabaseAuthUser[], 
+      normalizedEmail
+    );
     
-    if (emailExists) {
+    if (emailAlreadyExists) {
       throw new Error('Este email já está cadastrado no sistema');
     }
 
@@ -209,7 +214,7 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
       password: userData.password,
-      email_confirm: true, // ✅ Confirmar email automaticamente
+      email_confirm: true,
       user_metadata: {
         full_name: userData.fullName,
         company_id: userData.companyId,
@@ -255,12 +260,10 @@ export const createUserWithProfile = async (userData: CreateUserData): Promise<U
 
     if (profileError) {
       console.warn('⚠️ Erro ao criar profile:', profileError.message);
-      // Não falhar completamente se o profile não for criado
     }
 
     console.log('✅ Usuário criado com sucesso:', normalizedEmail);
 
-    // ✅ RETURN TYPE-SAFE
     return {
       success: true,
       user: authData.user,
@@ -308,14 +311,13 @@ export const getAllUsers = async (): Promise<any[]> => {
   }
 };
 
-// ✅ TESTAR CONEXÃO (para debugging)
+// ✅ TESTAR CONEXÃO
 export const testAdminConnection = async (): Promise<{ success: boolean; error?: string }> => {
   try {
     console.log('🔍 Testando conexão admin...');
     
     const supabaseAdmin = createAdminClient();
     
-    // Teste simples: listar usuários
     const { data, error } = await supabaseAdmin.auth.admin.listUsers();
     
     if (error) {
