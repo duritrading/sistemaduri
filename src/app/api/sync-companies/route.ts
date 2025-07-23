@@ -1,10 +1,10 @@
-// src/app/api/sync-companies/route.ts - VERSÃO ASANA ONLY (SEM FALLBACK)
+// src/app/api/sync-companies/route.ts - VERSÃO CORRIGIDA COM EXTRAÇÃO PRECISA
 import { NextResponse } from 'next/server';
 
 // ✅ FORCE VERCEL COMPATIBILITY
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Timeout 60s para Vercel Pro
+export const maxDuration = 60;
 
 // ✅ INTERFACES
 interface AsanaCompany {
@@ -27,42 +27,55 @@ interface SyncResult {
   error?: string;
 }
 
-// ✅ EXTRAÇÃO PRECISA DE EMPRESAS DOS TÍTULOS ASANA
+// ✅ EXTRAÇÃO PRECISA BASEADA NOS PADRÕES REAIS DO ASANA
 function extractCompanyFromTitle(title: string): string | null {
   if (!title || typeof title !== 'string') return null;
   
-  const patterns = [
-    // "122º WCB" ou "28º AGRIVALE"
-    /^\d+º\s+([A-Z][A-Z0-9\s&.-]+?)(?:\s*\(|$)/i,
-    
-    // "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)"
-    /^([A-Z][A-Z0-9\s&.-]+?)\s*\(/i,
-    
-    // "WCB - Algo mais"
-    /^([A-Z][A-Z0-9\s&.-]+?)\s*[-–]/i,
-    
-    // Fallback: primeira palavra em maiúsculo
-    /^([A-Z][A-Z0-9&.-]*)/
-  ];
+  const cleanTitle = title.trim();
   
-  for (const pattern of patterns) {
-    const match = title.match(pattern);
-    if (match && match[1]) {
-      const company = match[1].trim()
-        .replace(/\s+/g, ' ')
-        .replace(/[^\w\s&.-]/g, '')
-        .trim();
-      
-      if (company.length >= 2 && company.length <= 50) {
-        return company.toUpperCase();
-      }
+  // PADRÃO PRINCIPAL: [NÚMERO]º [NOME_EMPRESA] [(DETALHES_OPCIONAIS)]
+  // Exemplos suportados:
+  // "15º NATURALLY" → "Naturally"
+  // "87º Duri (GENERADOR - MARÍTIMO)" → "Duri" 
+  // "14.2 FIBRASA (INTRAVIS - ES: ALEMANHA)" → "Fibrasa"
+  // "02º R A B (BATATA)" → "R A B"
+  // "02º REI DOS PARA-BRISAS" → "Rei Dos Para-Brisas"
+  
+  const mainPattern = /^\d+(\.\d+)?º\s+([A-Z][A-Z0-9\s\-&.]+?)(?:\s*\(|$)/i;
+  const match = cleanTitle.match(mainPattern);
+  
+  if (match && match[2]) {
+    let companyName = match[2].trim();
+    
+    // Remover caracteres especiais do final
+    companyName = companyName.replace(/[\s\-.,]+$/, '');
+    
+    // Validar tamanho
+    if (companyName.length >= 1 && companyName.length <= 50) {
+      return formatCompanyName(companyName);
     }
   }
   
   return null;
 }
 
-// ✅ BUSCAR EMPRESAS REAIS DO ASANA
+// ✅ FORMATAÇÃO CORRETA DO NOME DA EMPRESA
+function formatCompanyName(name: string): string {
+  return name
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => {
+      // Manter siglas em maiúsculo (3 letras ou menos)
+      if (word.length <= 3 && /^[A-Z]+$/i.test(word)) {
+        return word.toUpperCase();
+      }
+      // Capitalizar primeira letra
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+// ✅ BUSCAR EMPRESAS REAIS DO ASANA COM EXTRAÇÃO CORRIGIDA
 async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
   console.log('🔄 [SYNC] Buscando empresas REAIS do Asana...');
 
@@ -75,7 +88,7 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
   // 2. Buscar workspace
   const workspacesResponse = await fetch('https://app.asana.com/api/1.0/workspaces', {
     headers: { 'Authorization': `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000) // 15s timeout
+    signal: AbortSignal.timeout(15000)
   });
   
   if (!workspacesResponse.ok) {
@@ -126,7 +139,7 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
 
     const tasksResponse = await fetch(endpoint, {
       headers: { 'Authorization': `Bearer ${token}` },
-      signal: AbortSignal.timeout(20000) // 20s para tasks
+      signal: AbortSignal.timeout(20000)
     });
 
     if (!tasksResponse.ok) {
@@ -147,47 +160,57 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
     throw new Error('Nenhuma task encontrada no projeto operacional');
   }
 
-  // 5. Extrair empresas das tasks
+  // 5. Extrair empresas das tasks (VERSÃO CORRIGIDA)
   const companySet = new Set<string>();
+  const extractionLog: string[] = [];
   
-  allTasks.forEach((task: any) => {
+  allTasks.forEach((task: any, index) => {
     if (!task.name) return;
 
-    // Extrair do título
+    // ✅ USAR A NOVA FUNÇÃO DE EXTRAÇÃO
     const titleCompany = extractCompanyFromTitle(task.name);
     if (titleCompany) {
       companySet.add(titleCompany);
+      extractionLog.push(`${index + 1}. "${task.name}" → "${titleCompany}"`);
     }
 
-    // Extrair dos custom fields
+    // ✅ TAMBÉM VERIFICAR CUSTOM FIELD "EMPRESA"
     if (task.custom_fields && Array.isArray(task.custom_fields)) {
       const empresaField = task.custom_fields.find((field: any) => 
         field.name === 'EMPRESA' && field.display_value
       );
       
       if (empresaField?.display_value) {
-        const fieldCompany = empresaField.display_value.toString().trim().toUpperCase();
-        if (fieldCompany.length >= 2 && fieldCompany.length <= 50) {
+        const fieldCompany = formatCompanyName(empresaField.display_value.toString().trim());
+        if (fieldCompany.length >= 1 && fieldCompany.length <= 50) {
           companySet.add(fieldCompany);
+          extractionLog.push(`${index + 1}. Custom field "EMPRESA" → "${fieldCompany}"`);
         }
       }
     }
   });
 
-  // 6. Converter para formato final
+  // 6. Log das extrações (para debug)
+  console.log(`📋 [SYNC] Extrações realizadas (primeiras 10):`);
+  extractionLog.slice(0, 10).forEach(log => console.log(`   ${log}`));
+  if (extractionLog.length > 10) {
+    console.log(`   ... e mais ${extractionLog.length - 10} extrações`);
+  }
+
+  // 7. Converter para formato final
   const companies: AsanaCompany[] = Array.from(companySet)
-    .filter(name => name && name !== 'NÃO_IDENTIFICADO')
+    .filter(name => name && name !== 'Não Identificado')
     .map(name => ({
       id: name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
       name: name,
-      displayName: name.split(/[_\-\s]+/)
-        .map(word => word.charAt(0) + word.slice(1).toLowerCase())
-        .join(' ')
+      displayName: name
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  console.log(`✅ [SYNC] ${companies.length} empresas extraídas:`, 
-    companies.map(c => c.name).slice(0, 5).join(', ') + (companies.length > 5 ? '...' : ''));
+  console.log(`✅ [SYNC] ${companies.length} empresas únicas extraídas:`);
+  companies.forEach((company, i) => {
+    console.log(`   ${i + 1}. ${company.name}`);
+  });
 
   if (companies.length === 0) {
     throw new Error('Nenhuma empresa válida foi extraída das tasks do Asana');
@@ -196,9 +219,9 @@ async function fetchAsanaCompaniesReal(): Promise<AsanaCompany[]> {
   return companies;
 }
 
-// ✅ POST - SINCRONIZAR EMPRESAS (ASANA ONLY)
+// ✅ POST - SINCRONIZAR EMPRESAS (ASANA ONLY COM EXTRAÇÃO CORRIGIDA)
 export async function POST() {
-  console.log('🚀 [SYNC] Sincronização ASANA ONLY iniciada...');
+  console.log('🚀 [SYNC] Sincronização ASANA ONLY iniciada (versão corrigida)...');
   
   try {
     // 1. Verificar variáveis Supabase
@@ -206,12 +229,12 @@ export async function POST() {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !serviceKey) {
-      throw new Error('Variáveis Supabase não configuradas (URL ou SERVICE_ROLE_KEY)');
+      throw new Error('Variáveis Supabase não configuradas');
     }
 
     console.log('✅ [SYNC] Variáveis Supabase verificadas');
 
-    // 2. Buscar empresas REAIS do Asana
+    // 2. Buscar empresas REAIS do Asana (com extração corrigida)
     const asanaCompanies = await fetchAsanaCompaniesReal();
     
     console.log(`🏢 [SYNC] ${asanaCompanies.length} empresas obtidas do Asana`);
@@ -232,7 +255,7 @@ export async function POST() {
 
     for (const company of asanaCompanies) {
       try {
-        // Verificar se empresa já existe
+        // Verificar se empresa já existe (por nome)
         const { data: existing, error: fetchError } = await supabase
           .from('companies')
           .select('*')
@@ -333,12 +356,11 @@ export async function POST() {
   }
 }
 
-// ✅ GET - STATUS DAS EMPRESAS (TAMBÉM SEM FALLBACK)
+// ✅ GET - STATUS DAS EMPRESAS
 export async function GET() {
   try {
     console.log('🔍 [SYNC] Verificando status das empresas...');
     
-    // Verificar variáveis
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -346,13 +368,11 @@ export async function GET() {
       throw new Error('Variáveis Supabase não configuradas');
     }
 
-    // Conectar ao Supabase
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    // Contar empresas no banco
     const { data: companies, error } = await supabase
       .from('companies')
       .select('name, display_name, active, created_at')
@@ -364,8 +384,6 @@ export async function GET() {
     }
 
     const companiesInDatabase = companies?.length || 0;
-
-    // Verificar se temos acesso ao Asana
     const token = process.env.ASANA_ACCESS_TOKEN;
     const asanaConfigured = !!(token && token.trim() !== '' && !token.includes('your_'));
 
@@ -375,7 +393,7 @@ export async function GET() {
       success: true,
       companiesInDatabase,
       companiesInAsana: asanaConfigured ? 'Configurado' : 'Token não configurado',
-      needsSync: companiesInDatabase === 0, // Só precisa sync se não tem nenhuma empresa
+      needsSync: companiesInDatabase === 0,
       asanaConfigured,
       companies: companies || [],
       timestamp: new Date().toISOString()
