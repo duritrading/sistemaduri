@@ -29,9 +29,9 @@ const DURI_PREMIUM_COLORS = {
   ]
 };
 
-// ✅ PARSE DATE FUNCTION (mantida igual)
-const parseETDDate = (etdString: string): { year: number; month: number } | null => {
-  if (!etdString || typeof etdString !== 'string') return null;
+// ✅ PARSE DATE FUNCTION (alterada para ETA)
+const parseETADate = (etaString: string): { year: number; month: number } | null => {
+  if (!etaString || typeof etaString !== 'string') return null;
   
   const patterns = [
     /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/,
@@ -41,7 +41,7 @@ const parseETDDate = (etdString: string): { year: number; month: number } | null
   ];
   
   for (const pattern of patterns) {
-    const match = etdString.match(pattern);
+    const match = etaString.match(pattern);
     if (match) {
       let year, month;
       
@@ -77,7 +77,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
         products: [],
         transportCompanies: [],
         orgaosAnuentes: [],
-        etdTimeline: []
+        etaTimeline: []
       };
     }
 
@@ -179,12 +179,12 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    // GRÁFICO 5: Timeline ETD
+    // GRÁFICO 5: Timeline ETA
     const monthCounts = new Map<string, number>();
     trackings.forEach(tracking => {
-      const etdString = tracking.schedule?.etd;
-      if (etdString) {
-        const parsedDate = parseETDDate(etdString);
+      const etaString = tracking.schedule?.eta;
+      if (etaString) {
+        const parsedDate = parseETADate(etaString);
         if (parsedDate) {
           const monthKey = `${parsedDate.year}-${parsedDate.month.toString().padStart(2, '0')}`;
           const current = monthCounts.get(monthKey) || 0;
@@ -193,7 +193,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       }
     });
 
-    const etdTimelineData = Array.from(monthCounts.entries())
+    const etaTimelineData = Array.from(monthCounts.entries())
       .map(([monthKey, operacoes]) => {
         const [year, month] = monthKey.split('-');
         const monthNames = [
@@ -214,7 +214,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
       products: productsData,
       transportCompanies: transportCompaniesData,
       orgaosAnuentes: orgaosAnuentesData,
-      etdTimeline: etdTimelineData
+      etaTimeline: etaTimelineData
     };
   }, [trackings]);
 
@@ -457,16 +457,16 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
         </div>
       </div>
 
-      {/* 📈 GRÁFICO 5: CRONOGRAMA ETD - Timeline Premium (Full Width) */}
-      {chartData.etdTimeline.length > 0 && (
+      {/* 📈 GRÁFICO 5: CRONOGRAMA ETA - Timeline Premium (Full Width) */}
+      {chartData.etaTimeline.length > 0 && (
         <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-red-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
           <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/5 to-transparent group-hover:from-[#b51c26]/10 transition-all"></div>
           
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-1">Cronograma ETD</h3>
-                <p className="text-sm text-gray-600">Distribuição temporal das operações • {chartData.etdTimeline.length} meses</p>
+                <h3 className="text-xl font-bold text-gray-900 mb-1">Cronograma ETA</h3>
+                <p className="text-sm text-gray-600">Distribuição temporal das operações • {chartData.etaTimeline.length} meses</p>
               </div>
               <div className="w-12 h-12 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-xl flex items-center justify-center shadow-lg">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -476,13 +476,13 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
             </div>
             
             <div className="flex items-end justify-between space-x-2 h-32 mb-4">
-              {chartData.etdTimeline.map((item, index) => (
+              {chartData.etaTimeline.map((item, index) => (
                 <div key={index} className="flex-1 flex flex-col items-center group/timeline">
                   <div className="relative w-full">
                     <div 
                       className="w-full rounded-t-lg transition-all duration-1000 ease-out group-hover/timeline:brightness-110 relative overflow-hidden flex items-center justify-center"
                       style={{
-                        height: `${Math.max((item.operacoes / Math.max(...chartData.etdTimeline.map(t => t.operacoes))) * 120, 28)}px`,
+                        height: `${Math.max((item.operacoes / Math.max(...chartData.etaTimeline.map(t => t.operacoes))) * 120, 28)}px`,
                         background: 'linear-gradient(180deg, #b51c26 0%, #dc2626 100%)',
                         boxShadow: '0 0 20px rgba(181, 28, 38, 0.3)',
                         minHeight: '28px'
@@ -510,7 +510,7 @@ export function ChartsSection({ trackings }: ChartsSectionProps) {
                 <span className="text-xs text-gray-600">Operações programadas</span>
               </div>
               <div className="text-xs text-gray-500">
-                Total: {chartData.etdTimeline.reduce((sum, item) => sum + item.operacoes, 0)} operações
+                Total: {chartData.etaTimeline.reduce((sum, item) => sum + item.operacoes, 0)} operações
               </div>
             </div>
           </div>
