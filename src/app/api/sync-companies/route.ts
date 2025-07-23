@@ -39,14 +39,20 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
   let cleanTitle = title.trim();
   if (debugMode) console.log(`🔍 [EXTRACT] Analisando: "${cleanTitle}"`);
   
-  // ✅ PADRÃO 1: TIMESTAMPS - Remover todos os timestamps do início (inclusive múltiplos)
-  // Remove sequências como: "17/07/2025, 11:53:39 BRT 10/07/2025, 16:47:50 BRT "
-  while (cleanTitle.match(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+\w+\s+/)) {
-    cleanTitle = cleanTitle.replace(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+\w+\s+/, '').trim();
-  }
+  // ✅ PADRÃO 1: TIMESTAMPS - Remover todos os timestamps do início (versão robusta)
+  // Remove sequências como: "17/07/2025, 11:53:39 BRT " e múltiplos timestamps
+  let originalTitle = cleanTitle;
   
-  if (debugMode && cleanTitle !== title.trim()) {
-    console.log(`   🧹 Removido timestamp: "${cleanTitle}"`);
+  // Loop para remover múltiplos timestamps consecutivos
+  let timestampRemoved = false;
+  do {
+    const beforeClean = cleanTitle;
+    cleanTitle = cleanTitle.replace(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+[A-Z]{3,4}\s+/, '').trim();
+    timestampRemoved = (cleanTitle !== beforeClean);
+  } while (timestampRemoved && cleanTitle.match(/^\d{2}\/\d{2}\/\d{4}/));
+  
+  if (debugMode && cleanTitle !== originalTitle) {
+    console.log(`   🧹 Removido timestamp(s): "${cleanTitle}"`);
   }
   
   // ✅ PADRÃO 2: NÚMEROS + SÍMBOLOS + EMPRESA
@@ -198,11 +204,17 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
 
   console.log(`✅ [SYNC] Projeto: ${operationalProject.name}`);
 
-  // 3. Buscar todas as tasks
+  // 3. Buscar todas as tasks com logs detalhados
+  console.log(`\n📋 [SYNC] Iniciando busca de tasks no projeto...`);
   const allTasks = [];
   let offset = undefined;
+  let pageCount = 0;
+  const maxPages = 20; // Limite de segurança para evitar loop infinito
   
   do {
+    pageCount++;
+    console.log(`📄 [SYNC] Buscando página ${pageCount}${offset ? ` (offset: ${offset})` : ' (primeira página)'}...`);
+    
     const endpoint = `https://app.asana.com/api/1.0/tasks?project=${operationalProject.gid}&opt_fields=name,custom_fields.name,custom_fields.display_value&limit=100${
       offset ? `&offset=${offset}` : ''
     }`;
@@ -213,18 +225,33 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     });
 
     if (!tasksResponse.ok) {
-      throw new Error(`Erro ao buscar tasks: ${tasksResponse.status}`);
+      console.error(`❌ [SYNC] Erro na página ${pageCount}: ${tasksResponse.status}`);
+      throw new Error(`Erro ao buscar tasks (página ${pageCount}): ${tasksResponse.status}`);
     }
 
     const tasksData = await tasksResponse.json();
     const tasks = tasksData.data || [];
     
+    console.log(`✅ [SYNC] Página ${pageCount}: ${tasks.length} tasks encontradas`);
     allTasks.push(...tasks);
+    
     offset = tasksData.next_page?.offset;
+    
+    if (offset) {
+      console.log(`🔄 [SYNC] Há mais páginas - continuando...`);
+    } else {
+      console.log(`🏁 [SYNC] Última página alcançada`);
+    }
+    
+    // Proteção contra loop infinito
+    if (pageCount >= maxPages) {
+      console.warn(`⚠️ [SYNC] Atingido limite de ${maxPages} páginas - parando busca`);
+      break;
+    }
     
   } while (offset);
 
-  console.log(`📊 [SYNC] ${allTasks.length} tasks encontradas no projeto operacional`);
+  console.log(`📊 [SYNC] BUSCA COMPLETA: ${allTasks.length} tasks encontradas em ${pageCount} páginas`);
 
   if (allTasks.length === 0) {
     throw new Error('Nenhuma task encontrada no projeto operacional');
@@ -238,6 +265,7 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
   let successfulExtractions = 0;
 
   console.log('\n🔍 [SYNC] Processando tasks - APENAS COM NÚMERO INICIAL...');
+  console.log(`📊 [SYNC] Iniciando processamento de ${allTasks.length} tasks encontradas`);
 
   allTasks.forEach((task: any, index) => {
     const taskNumber = index + 1;
@@ -249,17 +277,30 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     }
 
     // Tentar extrair empresa APENAS do título da tarefa
-    const extractedCompany = extractCompanyFromTitle(task.name, true);
+    const extractedCompany = extractCompanyFromTitle(task.name, false); // Debug off para não flooding
     
     if (extractedCompany) {
       companySet.add(extractedCompany);
       successfulExtractions++;
-      console.log(`✅ [TASK ${taskNumber}] "${task.name}" → "${extractedCompany}"`);
+      if (successfulExtractions <= 15) { // Log apenas primeiros 15 para não flooding
+        console.log(`✅ [TASK ${taskNumber}] "${task.name}" → "${extractedCompany}"`);
+      }
     } else {
       errorDetails.push(`${taskNumber}. "${task.name}" - Nenhum padrão reconhecido`);
-      console.log(`❌ [TASK ${taskNumber}] "${task.name}" - Nenhum padrão reconhecido`);
+      if (errorDetails.length <= 10) { // Log apenas primeiros 10 erros
+        console.log(`❌ [TASK ${taskNumber}] "${task.name}" - Nenhum padrão reconhecido`);
+      }
     }
   });
+
+  console.log(`\n📊 [SYNC] PROCESSAMENTO COMPLETO:`);
+  console.log(`   📋 Tasks processadas: ${allTasks.length}`);
+  console.log(`   ✅ Extrações sucessos: ${successfulExtractions}`);
+  console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
+  console.log(`   ⚠️ Tasks ignoradas: ${skippedTasks.length}`);
+  console.log(`   🏢 Empresas únicas extraídas: ${companySet.size}`);
+  console.log(`   📈 Taxa de extração: ${((successfulExtractions / allTasks.length) * 100).toFixed(1)}%`);
+  console.log(`   📈 Taxa de empresas únicas: ${((companySet.size / successfulExtractions) * 100).toFixed(1)}%`);
 
   // 5. Converter para formato final
   const companies: AsanaCompany[] = Array.from(companySet)
@@ -275,7 +316,7 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  console.log(`\n📊 [SYNC] ESTATÍSTICAS COMPLETAS:`);
+  console.log(`\n📊 [SYNC] ESTATÍSTICAS FINAIS:`);
   console.log(`   📋 Tasks processadas: ${allTasks.length}`);
   console.log(`   ✅ Extrações sucessos: ${successfulExtractions}`);
   console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
@@ -283,10 +324,19 @@ async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
   console.log(`   🏢 Empresas únicas: ${companies.length}`);
   console.log(`   📈 Taxa de extração: ${((successfulExtractions / allTasks.length) * 100).toFixed(1)}%`);
 
-  console.log(`\n🏢 [SYNC] Empresas extraídas:`);
+  console.log(`\n🏢 [SYNC] Empresas extraídas para sincronização:`);
   companies.forEach((company, i) => {
     console.log(`   ${i + 1}. "${company.name}" (slug: ${company.slug})`);
   });
+
+  // ✅ DIAGNÓSTICO DE QUANTIDADE
+  if (companies.length < 15) {
+    console.log(`\n⚠️ [SYNC] DIAGNÓSTICO - POUCAS EMPRESAS EXTRAÍDAS:`);
+    console.log(`   🔍 Esperado: Mais de 15 empresas únicas`);
+    console.log(`   📊 Obtido: ${companies.length} empresas`);
+    console.log(`   🧮 Taxa de conversão: ${successfulExtractions} sucessos → ${companies.length} empresas únicas`);
+    console.log(`   💡 Isso pode indicar muita duplicação (normal) ou problemas na extração`);
+  }
 
   return {
     companies,
@@ -423,10 +473,18 @@ export async function POST() {
     console.log(`   📊 Tasks do Asana: ${totalTasks}`);
     console.log(`   🏢 Empresas extraídas: ${companies.length}`);
     console.log(`   📈 Taxa de extração: ${((companies.length / totalTasks) * 100).toFixed(1)}%`);
-    console.log(`   ✅ Criadas: ${createdCount}`);
-    console.log(`   🔄 Reativadas: ${reactivatedCount}`);
+    console.log(`   ✅ Criadas no banco: ${createdCount}`);
+    console.log(`   🔄 Reativadas no banco: ${reactivatedCount}`);
     console.log(`   ⛔ Desativadas: ${deactivatedCount || 0}`);
-    console.log(`   ❌ Erros: ${errorCount}`);
+    console.log(`   ❌ Erros no banco: ${errorCount}`);
+    console.log(`   🏪 Total final no banco: ${createdCount + reactivatedCount} empresas ativas`);
+    
+    if (companies.length < 15) {
+      console.log(`\n⚠️ [SYNC] ALERTA - POUCAS EMPRESAS:`);
+      console.log(`   📊 Apenas ${companies.length} empresas extraídas de ${totalTasks} tasks`);
+      console.log(`   🔍 Verifique se a paginação da API está funcionando corretamente`);
+      console.log(`   💡 Ou se há muita duplicação de empresas nas tasks`);
+    }
 
     return NextResponse.json(finalResult);
 
