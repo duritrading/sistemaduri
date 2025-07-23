@@ -1,113 +1,129 @@
-// src/app/api/sync-companies/route.ts - API SIMPLIFICADA PARA SINCRONIZAR EMPRESAS
+// src/app/api/sync-companies/route.ts - FIXED: NO INTERNAL FETCH DURING BUILD
 import { NextResponse } from 'next/server';
+
+// ✅ FORCE RUNTIME ONLY - NO STATIC GENERATION
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST() {
   try {
-    console.log('🔄 [API] Iniciando sincronização simplificada...');
+    console.log('🔄 [API] Iniciando sincronização...');
 
-    // ✅ 1. BUSCAR DADOS DO ASANA VIA API INTERNA
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-    
-    const asanaResponse = await fetch(`${baseUrl}/api/asana/unified`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!asanaResponse.ok) {
-      throw new Error(`Erro ao buscar dados do Asana: ${asanaResponse.status} - ${asanaResponse.statusText}`);
+    // ✅ Check environment first
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Variáveis de ambiente não configuradas');
     }
 
-    const asanaResult = await asanaResponse.json();
+    // ✅ Import companies extractor - NO INTERNAL FETCH
+    const { fetchAsanaCompanies } = await import('@/lib/companies-extractor');
     
-    if (!asanaResult.success || !asanaResult.data) {
-      throw new Error('Dados do Asana não encontrados');
+    // ✅ Get companies directly from Asana
+    const extractedCompanies = await fetchAsanaCompanies();
+    
+    if (!extractedCompanies || extractedCompanies.length === 0) {
+      console.log('📊 [API] Nenhuma empresa encontrada no Asana');
+      return NextResponse.json({
+        success: true,
+        message: 'Nenhuma empresa encontrada no Asana',
+        stats: { totalProcessed: 0, created: 0, updated: 0, errors: 0 }
+      });
     }
-
-    console.log(`📊 [API] Processando ${asanaResult.data.length} trackings do Asana`);
-
-    // ✅ 2. EXTRAIR EMPRESAS USANDO FUNÇÃO EXISTENTE
-    const { extractCompaniesFromTrackings } = await import('@/lib/auth');
-    const extractedCompanies = extractCompaniesFromTrackings(asanaResult.data);
 
     console.log(`🏢 [API] Extraídas ${extractedCompanies.length} empresas:`, 
       extractedCompanies.slice(0, 5).map(c => c.name).join(', ') + '...');
 
-    // ✅ 3. CONECTAR AO SUPABASE
-    const { supabase } = await import('@/lib/supabase');
+    // ✅ Connect to Supabase
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, 
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
 
     let createdCount = 0;
     let updatedCount = 0;
     let errorCount = 0;
     const results = [];
 
-    // ✅ 4. SINCRONIZAR CADA EMPRESA
+    // ✅ Process each company
     for (const company of extractedCompanies) {
       try {
-        console.log(`🔄 [API] Processando empresa: ${company.name}`);
-
-        // Verificar se já existe
+        // Check if company exists
         const { data: existing, error: fetchError } = await supabase
           .from('companies')
-          .select('*')
+          .select('id, name, updated_at')
           .eq('name', company.name)
-          .maybeSingle(); // usar maybeSingle em vez de single para evitar erro se não existir
+          .single();
+
+        if (fetchError && fetchError.code !== 'PGRST116') {
+          throw fetchError;
+        }
 
         if (existing) {
-          // Atualizar empresa existente
+          // Update existing company
           const { error: updateError } = await supabase
             .from('companies')
             .update({
               display_name: company.displayName,
-              slug: company.id.toLowerCase().replace(/[^a-z0-9]/g, '-'),
-              active: true,
+              slug: company.id,
               updated_at: new Date().toISOString()
             })
             .eq('id', existing.id);
 
           if (updateError) {
-            console.error(`❌ [API] Erro ao atualizar ${company.name}:`, updateError);
-            errorCount++;
-            results.push({ company: company.name, status: 'error', error: updateError.message });
-          } else {
-            console.log(`✅ [API] Atualizada: ${company.name}`);
-            updatedCount++;
-            results.push({ company: company.name, status: 'updated' });
+            throw updateError;
           }
+
+          updatedCount++;
+          results.push({
+            action: 'updated',
+            company: company.name,
+            id: existing.id
+          });
+
         } else {
-          // Criar nova empresa
-          const { error: insertError } = await supabase
+          // Create new company
+          const { data: newCompany, error: createError } = await supabase
             .from('companies')
             .insert({
               name: company.name,
               display_name: company.displayName,
-              slug: company.id.toLowerCase().replace(/[^a-z0-9]/g, '-'),
-              active: true
-            });
+              slug: company.id,
+              active: true,
+              settings: {}
+            })
+            .select('id')
+            .single();
 
-          if (insertError) {
-            console.error(`❌ [API] Erro ao criar ${company.name}:`, insertError);
-            errorCount++;
-            results.push({ company: company.name, status: 'error', error: insertError.message });
-          } else {
-            console.log(`✅ [API] Criada: ${company.name}`);
-            createdCount++;
-            results.push({ company: company.name, status: 'created' });
+          if (createError) {
+            throw createError;
           }
+
+          createdCount++;
+          results.push({
+            action: 'created',
+            company: company.name,
+            id: newCompany.id
+          });
         }
+
       } catch (companyError) {
-        console.error(`❌ [API] Erro geral para ${company.name}:`, companyError);
+        console.error(`❌ [API] Erro ao processar empresa ${company.name}:`, companyError);
         errorCount++;
-        results.push({ 
-          company: company.name, 
-          status: 'error', 
-          error: companyError instanceof Error ? companyError.message : 'Erro desconhecido' 
+        results.push({
+          action: 'error',
+          company: company.name,
+          error: companyError instanceof Error ? companyError.message : 'Erro desconhecido'
         });
       }
     }
 
-    // ✅ 5. RESULTADO FINAL
+    // ✅ Final result
     const summary = {
       success: true,
       message: `Sincronização concluída: ${createdCount} criadas, ${updatedCount} atualizadas, ${errorCount} erros`,
@@ -117,7 +133,7 @@ export async function POST() {
         updated: updatedCount,
         errors: errorCount
       },
-      details: results.slice(0, 10) // Limitar detalhes para não sobrecarregar resposta
+      details: results.slice(0, 10) // Limit details
     };
 
     console.log('🎯 [API] Sincronização concluída:', summary.message);
@@ -136,14 +152,25 @@ export async function POST() {
   }
 }
 
-// ✅ GET PARA VERIFICAR STATUS
+// ✅ GET STATUS - ALSO RUNTIME ONLY
 export async function GET() {
   try {
     console.log('🔍 [API] Verificando status das empresas...');
     
-    const { supabase } = await import('@/lib/supabase');
+    // ✅ Direct Supabase connection - NO FETCH
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!, 
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
     
-    // Contar empresas no banco
+    // Count companies in database
     const { data: companies, error } = await supabase
       .from('companies')
       .select('name, display_name, active, created_at')
@@ -156,21 +183,16 @@ export async function GET() {
 
     console.log(`📊 [API] Encontradas ${companies?.length || 0} empresas no banco`);
 
-    // Buscar dados do Asana para comparar
+    // ✅ Get Asana companies count (NO FETCH) - Using direct extractor
     let asanaCompaniesCount = 0;
     
     try {
-      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-      const asanaResponse = await fetch(`${baseUrl}/api/asana/unified`);
+      const { fetchAsanaCompanies } = await import('@/lib/companies-extractor');
+      const asanaCompanies = await fetchAsanaCompanies();
       
-      if (asanaResponse.ok) {
-        const asanaResult = await asanaResponse.json();
-        if (asanaResult.success && asanaResult.data) {
-          const { extractCompaniesFromTrackings } = await import('@/lib/auth');
-          const extractedCompanies = extractCompaniesFromTrackings(asanaResult.data);
-          asanaCompaniesCount = extractedCompanies.length;
-          console.log(`📊 [API] Encontradas ${asanaCompaniesCount} empresas no Asana`);
-        }
+      if (asanaCompanies && asanaCompanies.length > 0) {
+        asanaCompaniesCount = asanaCompanies.length;
+        console.log(`📊 [API] Encontradas ${asanaCompaniesCount} empresas no Asana`);
       }
     } catch (asanaError) {
       console.warn('⚠️ [API] Erro ao buscar empresas do Asana:', asanaError);

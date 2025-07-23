@@ -1,13 +1,44 @@
-// src/app/login/page.tsx - DESIGN CORPORATIVO MARÍTIMO DURI TRADING (155 LOC)
-// Visual: Oceano profundo + Elementos náuticos + Corporate elegance + Logo integrada
+// src/app/login/page.tsx - DESIGN CORPORATIVO MARÍTIMO DURI TRADING + SUSPENSE FIX
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, AlertCircle, Settings, Database, Copy, Anchor, Compass, Ship, Globe } from 'lucide-react';
 
-export default function LoginPage() {
+// ✅ Loading component que mantém o tema marítimo
+function LoginLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
+    }}>
+      {/* Nautical Background Elements */}
+      <div className="absolute inset-0">
+        <div className="absolute top-20 left-10 opacity-10">
+          <Ship size={120} className="text-slate-300 rotate-12" />
+        </div>
+        <div className="absolute bottom-32 right-16 opacity-15">
+          <Compass size={100} className="text-red-300 animate-spin" style={{ animationDuration: '20s' }} />
+        </div>
+        <div className="absolute top-1/2 left-1/4 opacity-8">
+          <Globe size={200} className="text-slate-400" />
+        </div>
+      </div>
+
+      <div className="relative bg-slate-900/80 border border-slate-700/50 rounded-2xl shadow-2xl max-w-md w-full">
+        <div className="p-8 text-center">
+          <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Anchor size={32} className="text-white" />
+          </div>
+          <p className="text-slate-300 text-lg font-medium">Inicializando sistema...</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ✅ Component principal - EXATAMENTE O MESMO LAYOUT MARÍTIMO
+function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
@@ -17,7 +48,7 @@ export default function LoginPage() {
 
   const { signIn, user, profile, company, loading: authLoading, supabaseConfigured } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // ✅ Agora dentro do Suspense
 
   // ✅ CLIENT-SIDE DETECTION + DATABASE CHECK
   useEffect(() => {
@@ -165,33 +196,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
 
   // ✅ LOADING INITIAL
   if (!isClient) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{
-        background: 'linear-gradient(180deg, #0c1427 0%, #1e3a5f 35%, #2d5282 70%, #1a365d 100%)'
-      }}>
-        {/* Nautical Background Elements */}
-        <div className="absolute inset-0">
-          <div className="absolute top-20 left-10 opacity-10">
-            <Ship size={120} className="text-slate-300 rotate-12" />
-          </div>
-          <div className="absolute bottom-32 right-16 opacity-15">
-            <Compass size={100} className="text-red-300 animate-spin" style={{ animationDuration: '20s' }} />
-          </div>
-          <div className="absolute top-1/2 left-1/4 opacity-8">
-            <Globe size={200} className="text-slate-400" />
-          </div>
-        </div>
-
-        <div className="relative bg-slate-900/80 border border-slate-700/50 rounded-2xl shadow-2xl max-w-md w-full">
-          <div className="p-8 text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-red-700 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <Anchor size={32} className="text-white" />
-            </div>
-            <p className="text-slate-300 text-lg font-medium">Inicializando sistema...</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoginLoading />;
   }
 
   // ✅ SUPABASE NOT CONFIGURED
@@ -450,5 +455,14 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
         </div>
       </div>
     </div>
+  );
+}
+
+// ✅ EXPORT DEFAULT com Suspense - RESOLVE O ERRO SEM MUDAR LAYOUT
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoading />}>
+      <LoginContent />
+    </Suspense>
   );
 }
