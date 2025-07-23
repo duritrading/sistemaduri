@@ -190,7 +190,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ SINCRONIZAR EMPRESAS COM MELHOR ERROR HANDLING
+  // ✅ SINCRONIZAR EMPRESAS - VERSÃO BULLETPROOF
   const handleSyncCompanies = async () => {
     // Prevenir cliques múltiplos
     if (syncing) {
@@ -206,9 +206,12 @@ export default function AdminUsersPage() {
     try {
       console.log('🔄 [FRONTEND] Chamando API de sincronização...');
 
-      // ✅ Configurar timeout para a requisição
+      // ✅ TIMEOUT DE 30 SEGUNDOS
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.log('⏰ Timeout na sincronização');
+      }, 30000);
 
       const response = await fetch('/api/sync-companies', {
         method: 'POST',
@@ -220,56 +223,71 @@ export default function AdminUsersPage() {
 
       clearTimeout(timeoutId);
 
+      console.log(`📡 [FRONTEND] Response: ${response.status} ${response.statusText}`);
       setDebugInfo(`📡 Response: ${response.status} ${response.statusText}`);
 
-      // ✅ Tratar diferentes tipos de erro
+      // ✅ TRATAR DIFERENTES STATUS DE ERRO
       if (!response.ok) {
-        let errorMessage = `Erro ${response.status}: ${response.statusText}`;
+        let errorDetails = `Status ${response.status}: ${response.statusText}`;
         
         try {
-          const errorData = await response.text();
-          setDebugInfo(`❌ Erro detalhado: ${errorData}`);
+          const errorText = await response.text();
+          console.log('❌ [FRONTEND] Erro detalhado:', errorText);
           
-          // Tentar fazer parse do JSON se possível
+          // Tentar extrair mensagem de erro mais específica
           try {
-            const jsonError = JSON.parse(errorData);
-            errorMessage = jsonError.error || jsonError.details || errorMessage;
+            const errorJson = JSON.parse(errorText);
+            errorDetails = errorJson.details || errorJson.error || errorDetails;
           } catch {
-            // Se não for JSON, usar o texto como está
-            if (errorData && errorData.length < 200) {
-              errorMessage = errorData;
+            // Se não for JSON, usar texto como está
+            if (errorText && errorText.length < 300) {
+              errorDetails = errorText;
             }
           }
         } catch (parseError) {
-          console.error('❌ Erro ao ler resposta:', parseError);
+          console.error('❌ [FRONTEND] Erro ao ler resposta:', parseError);
         }
         
-        throw new Error(errorMessage);
+        setDebugInfo(`❌ Erro da API: ${errorDetails}`);
+        throw new Error(`Erro ${response.status}: ${errorDetails}`);
       }
 
-      // ✅ Processar resposta de sucesso
-      const result = await response.json();
+      // ✅ PROCESSAR RESPOSTA DE SUCESSO
+      let result;
+      try {
+        result = await response.json();
+      } catch (jsonError) {
+        console.error('❌ [FRONTEND] Erro ao fazer parse do JSON:', jsonError);
+        throw new Error('Resposta da API inválida');
+      }
       
+      console.log('📊 [FRONTEND] Resultado da sincronização:', result);
       setDebugInfo(`📊 Resultado: ${JSON.stringify(result.stats || {}, null, 2)}`);
 
+      // ✅ VERIFICAR SE A SINCRONIZAÇÃO FOI BEM-SUCEDIDA
       if (!result.success) {
-        throw new Error(result.error || result.details || 'Erro na sincronização');
+        const errorMsg = result.error || result.details || 'Erro desconhecido na sincronização';
+        setDebugInfo(`❌ API retornou erro: ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
-      // ✅ Mostrar resultado de sucesso
-      setSuccess(`✅ ${result.message}
+      // ✅ MOSTRAR RESULTADO DE SUCESSO
+      const stats = result.stats || { totalProcessed: 0, created: 0, updated: 0, errors: 0 };
+      
+      setSuccess(`✅ ${result.message || 'Sincronização concluída!'}
 
 📊 Estatísticas:
-• Total processadas: ${result.stats?.totalProcessed || 0}
-• Criadas: ${result.stats?.created || 0}
-• Atualizadas: ${result.stats?.updated || 0}
-• Erros: ${result.stats?.errors || 0}
+• Total processadas: ${stats.totalProcessed}
+• Criadas: ${stats.created}
+• Atualizadas: ${stats.updated}
+• Erros: ${stats.errors}
 
 As empresas foram sincronizadas com sucesso!`);
 
       setDebugInfo('✅ Sincronização concluída com sucesso');
 
-      // ✅ Recarregar dados após sucesso
+      // ✅ RECARREGAR DADOS
+      console.log('🔄 [FRONTEND] Recarregando dados...');
       await loadData();
 
     } catch (err) {
@@ -279,11 +297,13 @@ As empresas foram sincronizadas com sucesso!`);
       
       if (err instanceof Error) {
         if (err.name === 'AbortError') {
-          errorMessage = 'Sincronização cancelada por timeout (30s). Tente novamente.';
+          errorMessage = 'Sincronização cancelada por timeout (30s). A API pode estar lenta, tente novamente.';
         } else if (err.message.includes('Failed to fetch')) {
-          errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
+          errorMessage = 'Erro de conexão com a API. Verifique sua internet e tente novamente.';
         } else if (err.message.includes('NetworkError')) {
           errorMessage = 'Erro de rede. Tente novamente em alguns minutos.';
+        } else if (err.message.includes('500')) {
+          errorMessage = 'Erro interno do servidor. Verifique se as variáveis de ambiente estão configuradas no Vercel.';
         } else {
           errorMessage = err.message;
         }
@@ -291,6 +311,17 @@ As empresas foram sincronizadas com sucesso!`);
       
       setError(`❌ Erro na sincronização: ${errorMessage}`);
       setDebugInfo(`❌ Erro final: ${errorMessage}`);
+      
+      // ✅ SUGESTÕES DE SOLUÇÃO
+      if (errorMessage.includes('500') || errorMessage.includes('servidor')) {
+        setError(`❌ Erro na sincronização: ${errorMessage}
+
+🔧 Possíveis soluções:
+• Verifique se NEXT_PUBLIC_SUPABASE_URL está configurada no Vercel
+• Verifique se SUPABASE_SERVICE_ROLE_KEY está configurada no Vercel  
+• Confirme se a tabela 'companies' existe no Supabase
+• Tente novamente em alguns minutos`);
+      }
       
     } finally {
       setSyncing(false);
