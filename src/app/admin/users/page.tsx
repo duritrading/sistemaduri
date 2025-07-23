@@ -190,55 +190,108 @@ export default function AdminUsersPage() {
     }
   };
 
-  // ✅ SINCRONIZAR EMPRESAS COM DEBUGGING DETALHADO
+  // ✅ SINCRONIZAR EMPRESAS COM MELHOR ERROR HANDLING
   const handleSyncCompanies = async () => {
+    // Prevenir cliques múltiplos
+    if (syncing) {
+      console.log('⚠️ Sincronização já em andamento...');
+      return;
+    }
+
     setSyncing(true);
     setError('');
     setSuccess('');
     setDebugInfo('🔄 Iniciando sincronização...');
 
     try {
+      console.log('🔄 [FRONTEND] Chamando API de sincronização...');
+
+      // ✅ Configurar timeout para a requisição
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos
+
       const response = await fetch('/api/sync-companies', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        signal: controller.signal
       });
 
-      setDebugInfo(`📡 Sync response: ${response.status} ${response.statusText}`);
+      clearTimeout(timeoutId);
 
+      setDebugInfo(`📡 Response: ${response.status} ${response.statusText}`);
+
+      // ✅ Tratar diferentes tipos de erro
       if (!response.ok) {
-        const errorText = await response.text();
-        setDebugInfo(`❌ Erro na resposta: ${errorText}`);
-        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+        let errorMessage = `Erro ${response.status}: ${response.statusText}`;
+        
+        try {
+          const errorData = await response.text();
+          setDebugInfo(`❌ Erro detalhado: ${errorData}`);
+          
+          // Tentar fazer parse do JSON se possível
+          try {
+            const jsonError = JSON.parse(errorData);
+            errorMessage = jsonError.error || jsonError.details || errorMessage;
+          } catch {
+            // Se não for JSON, usar o texto como está
+            if (errorData && errorData.length < 200) {
+              errorMessage = errorData;
+            }
+          }
+        } catch (parseError) {
+          console.error('❌ Erro ao ler resposta:', parseError);
+        }
+        
+        throw new Error(errorMessage);
       }
 
+      // ✅ Processar resposta de sucesso
       const result = await response.json();
+      
       setDebugInfo(`📊 Resultado: ${JSON.stringify(result.stats || {}, null, 2)}`);
 
       if (!result.success) {
-        throw new Error(result.error || 'Erro na sincronização');
+        throw new Error(result.error || result.details || 'Erro na sincronização');
       }
 
+      // ✅ Mostrar resultado de sucesso
       setSuccess(`✅ ${result.message}
 
 📊 Estatísticas:
-• Total processadas: ${result.stats.totalProcessed}
-• Criadas: ${result.stats.created}
-• Atualizadas: ${result.stats.updated}
-• Erros: ${result.stats.errors}
+• Total processadas: ${result.stats?.totalProcessed || 0}
+• Criadas: ${result.stats?.created || 0}
+• Atualizadas: ${result.stats?.updated || 0}
+• Erros: ${result.stats?.errors || 0}
 
-As empresas do Asana foram sincronizadas com sucesso!`);
+As empresas foram sincronizadas com sucesso!`);
 
       setDebugInfo('✅ Sincronização concluída com sucesso');
 
-      // Recarregar dados
+      // ✅ Recarregar dados após sucesso
       await loadData();
 
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Erro ao sincronizar empresas';
-      setError(errorMsg);
-      setDebugInfo(`❌ Erro na sincronização: ${errorMsg}`);
+      console.error('❌ [FRONTEND] Erro na sincronização:', err);
+      
+      let errorMessage = 'Erro desconhecido na sincronização';
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Sincronização cancelada por timeout (30s). Tente novamente.';
+        } else if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
+        } else if (err.message.includes('NetworkError')) {
+          errorMessage = 'Erro de rede. Tente novamente em alguns minutos.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(`❌ Erro na sincronização: ${errorMessage}`);
+      setDebugInfo(`❌ Erro final: ${errorMessage}`);
+      
     } finally {
       setSyncing(false);
     }

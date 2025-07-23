@@ -361,38 +361,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     throw new Error('Criação de conta desabilitada. Entre em contato com o administrador.');
   };
 
-  // ✅ SIGN OUT
+  // ✅ SIGN OUT CORRIGIDO - Cole isso no lugar da função signOut atual
   const signOut = async (): Promise<void> => {
+    console.log('🔄 Iniciando logout...');
     setLoading(true);
     
+    // ✅ 1. LIMPAR ESTADO LOCAL PRIMEIRO (resolve UI imediatamente)
+    setUser(null);
+    setProfile(null);
+    setCompany(null);
+    setSession(null);
+    setError(null);
+    
     try {
+      // ✅ 2. VERIFICAR SE HÁ SESSÃO ATIVA ANTES DE TENTAR LOGOUT
       if (isClient && supabaseConfigured) {
         const { supabase } = await import('@/lib/supabase');
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+        
+        // Verificar sessão atual
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          console.log('✅ Sessão encontrada, fazendo logout...');
+          const { error } = await supabase.auth.signOut();
+          
+          // ✅ 3. NÃO BLOQUEAR se for erro de sessão missing
+          if (error && !error.message.includes('Auth session missing')) {
+            console.warn('⚠️ Erro no logout (mas continuando):', error.message);
+          }
+        } else {
+          console.log('ℹ️ Nenhuma sessão ativa - logout local suficiente');
+        }
       }
-      
-      setUser(null);
-      setProfile(null);
-      setCompany(null);
-      setSession(null);
-      setError(null);
-      
-      console.log('✅ Logout realizado');
-      router.push('/login');
-      
     } catch (error) {
-      console.error('❌ Erro no logout:', error);
-      // Limpar estado mesmo com erro
-      setUser(null);
-      setProfile(null);
-      setCompany(null);
-      setSession(null);
-      setError(null);
-      router.push('/login');
-    } finally {
-      setLoading(false);
+      // ✅ 4. CAPTURAR QUALQUER ERRO SEM BLOQUEAR LOGOUT
+      console.warn('⚠️ Erro durante logout (continuando):', error);
     }
+    
+    // ✅ 5. SEMPRE REDIRECIONAR (independente de erros)
+    setLoading(false);
+    
+    try {
+      router.push('/login');
+    } catch (routerError) {
+      // Fallback se router falhar
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+    
+    console.log('✅ Logout concluído');
   };
 
   // ✅ REFRESH PROFILE

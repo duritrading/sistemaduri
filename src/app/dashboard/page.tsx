@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { MaritimeDashboard } from '@/components/MaritimeDashboard';
 import { NotificationsButton } from '@/components/NotificationsButton';
 import { NotificationsStatusIndicator } from '@/components/NotificationsStatusIndicator';
-import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp, Settings } from 'lucide-react';
+import { LogOut, Activity, Wifi, WifiOff, Sparkles, User, Building2, Shield, Users, BarChart3, List, TrendingUp, Settings, Loader2 } from 'lucide-react';
 import { MobileNavigation } from '@/components/MobileNavigation';
 
 export default function DashboardPage() {
@@ -112,15 +112,34 @@ export default function DashboardPage() {
   };
 
   // ✅ HANDLE LOGOUT COM LIMPEZA DE ADMIN
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const handleLogout = async () => {
-    try {
-      // Limpar seleção de empresa do admin
-      localStorage.removeItem('admin_selected_company');
-      await signOut();
-    } catch (error) {
-      console.error('Erro no logout:', error);
+  // Prevenir cliques múltiplos
+  if (isLoggingOut) {
+    console.log('⚠️ Logout já em andamento...');
+    return;
+  }
+  
+  setIsLoggingOut(true);
+  
+  try {
+    console.log('🔄 Usuário solicitou logout');
+    await signOut();
+  } catch (error) {
+    console.error('❌ Erro no logout:', error);
+    
+    // ✅ Fallback: redirecionar mesmo com erro
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
     }
-  };
+  } finally {
+    // Liberar botão após delay
+    setTimeout(() => {
+      setIsLoggingOut(false);
+    }, 1000);
+  }
+};
+
 
   // ✅ VERIFICAR ROLES
   const isAdmin = profile?.role === 'admin';
@@ -335,12 +354,22 @@ export default function DashboardPage() {
                     )}
                     
                     <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center space-x-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-b-xl transition-colors"
-                    >
-                      <LogOut size={16} />
-                      <span>Sair</span>
-                    </button>
+  onClick={handleLogout}
+  disabled={isLoggingOut}
+  className="flex items-center space-x-2 text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+>
+  {isLoggingOut ? (
+    <>
+      <Loader2 size={20} className="animate-spin" />
+      <span>Saindo...</span>
+    </>
+  ) : (
+    <>
+      <LogOut size={20} />
+      <span>Sair</span>
+    </>
+  )}
+</button>
                   </div>
                 </div>
               </div>
