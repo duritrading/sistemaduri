@@ -1,4 +1,4 @@
-// src/app/api/sync-companies/route.ts - VERSÃO REPLACE ALL + PADRÕES CORRIGIDOS
+// src/app/api/sync-companies/route.ts - CORREÇÃO FINAL DEFINITIVA
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,7 @@ interface SyncResult {
   error?: string;
 }
 
-// ✅ EXTRAÇÃO CORRIGIDA PARA TODOS OS PADRÕES
+// ✅ EXTRAÇÃO CORRIGIDA BASEADA NOS PADRÕES REAIS DO SEU ASANA
 function extractCompanyFromTitle(title: string, debugMode = true): string | null {
   if (!title || typeof title !== 'string') {
     if (debugMode) console.log(`❌ [EXTRACT] Título inválido: ${JSON.stringify(title)}`);
@@ -38,57 +38,42 @@ function extractCompanyFromTitle(title: string, debugMode = true): string | null
   
   const cleanTitle = title.trim();
   
-  // ✅ PADRÕES SUPORTADOS (baseados nos seus erros):
-  const patterns = [
-    // 1. Padrão principal: "15º NATURALLY" ou "03º ATACAMAX"
-    {
-      regex: /^\d+(\.\d+)?º\s+([A-Z][A-Z0-9\s\-&.]+?)(?:\s*\(|$)/i,
-      group: 2,
-      name: 'Padrão Principal'
-    },
-    
-    // 2. Sem número inicial: "AGRIVALE (01.25 DRAWBACK)" 
-    {
-      regex: /^([A-Z][A-Z0-9\s\-&.]{2,}?)\s*\(/i,
-      group: 1,
-      name: 'Sem Número Inicial'
-    },
-    
-    // 3. Nome simples em maiúsculo: "EMPRESA NOME"
-    {
-      regex: /^([A-Z][A-Z0-9\s\-&.]{2,})$/i,
-      group: 1, 
-      name: 'Nome Simples'
-    },
-    
-    // 4. Com hífen ou underscore: "EMPRESA-NOME" ou "EMPRESA_NOME"
-    {
-      regex: /^([A-Z][A-Z0-9\-_&.]{2,})/i,
-      group: 1,
-      name: 'Com Separadores'
-    }
-  ];
+  // ✅ PADRÃO ÚNICO SIMPLIFICADO baseado nos seus dados reais
+  // Captura: "122º WCB", "02º REI DOS PARA-BRISAS", "651º UNIVAR (PO 452751642)", etc.
+  const mainPattern = /^(\d+(\.\d+)?º)\s+(.+?)(\s*\(.*\))?$/;
   
-  for (const pattern of patterns) {
-    const match = cleanTitle.match(pattern.regex);
-    if (match && match[pattern.group]) {
-      let companyName = match[pattern.group].trim();
-      
-      // Limpar caracteres especiais do final
-      companyName = companyName.replace(/[\s\-.,_]+$/, '');
-      
-      // Validar tamanho
-      if (companyName.length >= 2 && companyName.length <= 50) {
-        const formatted = formatCompanyName(companyName);
-        if (debugMode) console.log(`✅ [EXTRACT] "${cleanTitle}" → "${formatted}" (${pattern.name})`);
-        return formatted;
-      } else {
-        if (debugMode) console.log(`❌ [EXTRACT] Nome inválido (${companyName.length} chars): "${companyName}"`);
-      }
+  const match = cleanTitle.match(mainPattern);
+  
+  if (match) {
+    const numero = match[1];           // "122º", "02º", "651º"
+    const nomeCompleto = match[3];     // "WCB", "REI DOS PARA-BRISAS", "UNIVAR"
+    const detalhes = match[4] || '';   // "(PO 452751642)" ou vazio
+    
+    if (debugMode) {
+      console.log(`🔍 [EXTRACT] Analisando: "${cleanTitle}"`);
+      console.log(`   - Número: "${numero}"`);
+      console.log(`   - Nome: "${nomeCompleto}"`);
+      console.log(`   - Detalhes: "${detalhes}"`);
+    }
+    
+    // Limpar e validar o nome da empresa
+    let companyName = nomeCompleto.trim();
+    
+    // Remover caracteres especiais do final se houver
+    companyName = companyName.replace(/[\s\-.,_]+$/, '');
+    
+    // Validar tamanho
+    if (companyName.length >= 1 && companyName.length <= 50) {
+      const formatted = formatCompanyName(companyName);
+      if (debugMode) console.log(`✅ [EXTRACT] "${cleanTitle}" → "${formatted}"`);
+      return formatted;
+    } else {
+      if (debugMode) console.log(`❌ [EXTRACT] Nome inválido (${companyName.length} chars): "${companyName}"`);
+      return null;
     }
   }
   
-  if (debugMode) console.log(`❌ [EXTRACT] Nenhum padrão reconhecido: "${cleanTitle}"`);
+  if (debugMode) console.log(`❌ [EXTRACT] Padrão não reconhecido: "${cleanTitle}"`);
   return null;
 }
 
@@ -98,7 +83,7 @@ function formatCompanyName(name: string): string {
     .split(/\s+/)
     .map(word => {
       // Manter siglas em maiúsculo (3 letras ou menos)
-      if (word.length <= 3 && /^[A-Z]+$/i.test(word)) {
+      if (word.length <= 3 && /^[A-Z]+$/i.test(word.toUpperCase())) {
         return word.toUpperCase();
       }
       // Capitalizar primeira letra
@@ -107,43 +92,51 @@ function formatCompanyName(name: string): string {
     .join(' ');
 }
 
-// ✅ GERAR SLUG ÚNICO (RESOLVER CONSTRAINT VIOLATION)
+// ✅ GERAR SLUG ÚNICO COM TIMESTAMP PARA GARANTIR UNICIDADE
 function generateUniqueSlug(name: string, existingSlugs: Set<string>): string {
-  // Slug base
+  // Slug base limpo
   let baseSlug = name
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '') // Remover caracteres especiais
-    .replace(/\s+/g, '-')        // Espaços para hífens
-    .replace(/-+/g, '-')         // Múltiplos hífens para um
-    .replace(/^-|-$/g, '');      // Remover hífens do início/fim
+    .normalize('NFD')                    // Normalizar caracteres acentuados
+    .replace(/[\u0300-\u036f]/g, '')     // Remover acentos
+    .replace(/[^a-z0-9\s]/g, '')         // Só letras, números e espaços
+    .replace(/\s+/g, '-')                // Espaços para hífens
+    .replace(/-+/g, '-')                 // Múltiplos hífens para um
+    .replace(/^-|-$/g, '');              // Remover hífens do início/fim
   
-  // Se slug base não existe, usar ele
+  // Se slug base está vazio, usar fallback
+  if (!baseSlug) {
+    baseSlug = 'empresa';
+  }
+  
+  // Se slug não existe, usar ele
   if (!existingSlugs.has(baseSlug)) {
     existingSlugs.add(baseSlug);
     return baseSlug;
   }
   
-  // Se existe, adicionar número sequencial
-  let counter = 2;
-  let uniqueSlug = `${baseSlug}-${counter}`;
+  // Se existe, usar timestamp + contador para garantir unicidade absoluta
+  const timestamp = Date.now().toString().slice(-6); // Últimos 6 dígitos do timestamp
+  let counter = 1;
+  let uniqueSlug = `${baseSlug}-${timestamp}-${counter}`;
   
   while (existingSlugs.has(uniqueSlug)) {
     counter++;
-    uniqueSlug = `${baseSlug}-${counter}`;
+    uniqueSlug = `${baseSlug}-${timestamp}-${counter}`;
   }
   
   existingSlugs.add(uniqueSlug);
   return uniqueSlug;
 }
 
-// ✅ BUSCAR EMPRESAS DO ASANA COM PADRÕES CORRIGIDOS
-async function fetchAsanaCompaniesWithPatterns(): Promise<{
+// ✅ BUSCAR EMPRESAS COM STRATEGY REPLACE ALL COMPLETA
+async function fetchAsanaCompaniesAndReplaceAll(): Promise<{
   companies: AsanaCompany[];
   errorDetails: string[];
   skippedTasks: string[];
   totalTasks: number;
 }> {
-  console.log('🔄 [SYNC] Buscando empresas do Asana com padrões corrigidos...');
+  console.log('🔄 [SYNC] Buscando empresas do Asana (FINAL FIX)...');
 
   const token = process.env.ASANA_ACCESS_TOKEN;
   if (!token || token.trim() === '' || token.includes('your_')) {
@@ -193,7 +186,7 @@ async function fetchAsanaCompaniesWithPatterns(): Promise<{
 
   console.log(`✅ [SYNC] Projeto: ${operationalProject.name}`);
 
-  // 3. Buscar tasks
+  // 3. Buscar todas as tasks
   const allTasks = [];
   let offset = undefined;
   
@@ -219,44 +212,45 @@ async function fetchAsanaCompaniesWithPatterns(): Promise<{
     
   } while (offset);
 
-  console.log(`📊 [SYNC] ${allTasks.length} tasks encontradas`);
+  console.log(`📊 [SYNC] ${allTasks.length} tasks encontradas no projeto operacional`);
 
   if (allTasks.length === 0) {
-    throw new Error('Nenhuma task encontrada no projeto');
+    throw new Error('Nenhuma task encontrada no projeto operacional');
   }
 
-  // 4. Extrair empresas com padrões corrigidos
+  // 4. Extrair empresas com lógica corrigida
   const companySet = new Set<string>();
   const errorDetails: string[] = [];
   const skippedTasks: string[] = [];
   const existingSlugs = new Set<string>();
   let successfulExtractions = 0;
 
-  console.log('\n🔍 [SYNC] Analisando tasks com padrões corrigidos...');
+  console.log('\n🔍 [SYNC] Processando tasks com regex corrigida...');
 
   allTasks.forEach((task: any, index) => {
     const taskNumber = index + 1;
     
-    console.log(`\n📝 [${taskNumber}/${allTasks.length}] Task: "${task.name}"`);
+    console.log(`\n📝 [TASK ${taskNumber}/${allTasks.length}] "${task.name}"`);
     
-    if (!task.name) {
-      skippedTasks.push(`${taskNumber}. Task sem nome (ID: ${task.gid})`);
-      console.log(`   ⚠️ SKIP: Task sem nome`);
+    if (!task.name || typeof task.name !== 'string') {
+      skippedTasks.push(`${taskNumber}. Task sem nome válido (ID: ${task.gid})`);
+      console.log(`   ⚠️ SKIP: Task sem nome válido`);
       return;
     }
 
-    // Tentar extrair do título com padrões corrigidos
-    const titleCompany = extractCompanyFromTitle(task.name, true);
-    if (titleCompany) {
-      companySet.add(titleCompany);
+    // Tentar extrair empresa do título
+    const extractedCompany = extractCompanyFromTitle(task.name, true);
+    
+    if (extractedCompany) {
+      companySet.add(extractedCompany);
       successfulExtractions++;
-      console.log(`   ✅ SUCESSO: "${titleCompany}"`);
+      console.log(`   ✅ SUCESSO: "${extractedCompany}"`);
     } else {
       errorDetails.push(`${taskNumber}. "${task.name}" - Padrão não reconhecido`);
       console.log(`   ❌ ERRO: Padrão não reconhecido`);
     }
 
-    // Também verificar custom field "EMPRESA"
+    // Verificar custom field "EMPRESA" como backup
     if (task.custom_fields && Array.isArray(task.custom_fields)) {
       const empresaField = task.custom_fields.find((field: any) => 
         field.name === 'EMPRESA' && field.display_value
@@ -272,9 +266,9 @@ async function fetchAsanaCompaniesWithPatterns(): Promise<{
     }
   });
 
-  // 5. Converter para formato final com slugs únicos
+  // 5. Converter para formato final com slugs únicos garantidos
   const companies: AsanaCompany[] = Array.from(companySet)
-    .filter(name => name && name !== 'Não Identificado')
+    .filter(name => name && name.length > 0)
     .map(name => {
       const slug = generateUniqueSlug(name, existingSlugs);
       return {
@@ -286,16 +280,16 @@ async function fetchAsanaCompaniesWithPatterns(): Promise<{
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  console.log(`\n📊 [SYNC] ESTATÍSTICAS FINAIS:`);
-  console.log(`   📋 Total de tasks: ${allTasks.length}`);
-  console.log(`   ✅ Extrações bem-sucedidas: ${successfulExtractions}`);
+  console.log(`\n📊 [SYNC] ESTATÍSTICAS DE EXTRAÇÃO:`);
+  console.log(`   📋 Tasks processadas: ${allTasks.length}`);
+  console.log(`   ✅ Extrações sucessos: ${successfulExtractions}`);
   console.log(`   ❌ Erros de extração: ${errorDetails.length}`);
   console.log(`   ⚠️ Tasks ignoradas: ${skippedTasks.length}`);
   console.log(`   🏢 Empresas únicas: ${companies.length}`);
 
-  console.log(`\n🏢 [SYNC] Empresas para sincronizar:`);
+  console.log(`\n🏢 [SYNC] Empresas extraídas para sincronização:`);
   companies.forEach((company, i) => {
-    console.log(`   ${i + 1}. ${company.name} (slug: ${company.slug})`);
+    console.log(`   ${i + 1}. "${company.name}" (slug: ${company.slug})`);
   });
 
   return {
@@ -306,12 +300,12 @@ async function fetchAsanaCompaniesWithPatterns(): Promise<{
   };
 }
 
-// ✅ POST - SINCRONIZAÇÃO REPLACE ALL
+// ✅ POST - SINCRONIZAÇÃO REPLACE ALL DEFINITIVA
 export async function POST() {
-  console.log('🚀 [SYNC] Sincronização REPLACE ALL iniciada...');
+  console.log('🚀 [SYNC] Sincronização REPLACE ALL DEFINITIVA...');
   
   try {
-    // 1. Verificar Supabase
+    // 1. Verificar configurações
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -319,12 +313,9 @@ export async function POST() {
       throw new Error('Variáveis Supabase não configuradas');
     }
 
-    // 2. Buscar empresas do Asana
-    const { companies, errorDetails, skippedTasks, totalTasks } = await fetchAsanaCompaniesWithPatterns();
-    
-    console.log(`🏢 [SYNC] ${companies.length} empresas para sincronizar`);
+    console.log('✅ [SYNC] Configurações verificadas');
 
-    // 3. Conectar ao Supabase
+    // 2. Conectar ao Supabase
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
@@ -332,14 +323,23 @@ export async function POST() {
 
     console.log('✅ [SYNC] Conexão Supabase estabelecida');
 
-    // 4. ✅ REPLACE ALL STRATEGY
-    console.log('\n🔄 [SYNC] Executando strategy REPLACE ALL...');
+    // 3. Buscar empresas do Asana e extrair corretamente
+    const { companies, errorDetails, skippedTasks, totalTasks } = await fetchAsanaCompaniesAndReplaceAll();
+    
+    console.log(`\n🏢 [SYNC] ${companies.length} empresas prontas para sincronizar`);
 
-    // 4.1. Desativar todas as empresas existentes
-    console.log('📝 [SYNC] Desativando todas as empresas existentes...');
-    const { error: deactivateError } = await supabase
+    // 4. ✅ IMPLEMENTAR REPLACE ALL STRATEGY
+    console.log('\n🔄 [SYNC] Executando REPLACE ALL...');
+
+    // 4.1 PRIMEIRO: Desativar todas as empresas existentes
+    console.log('📝 [SYNC] Passo 1: Desativando todas as empresas...');
+    
+    const { count: deactivatedCount, error: deactivateError } = await supabase
       .from('companies')
-      .update({ active: false, updated_at: new Date().toISOString() })
+      .update({ 
+        active: false, 
+        updated_at: new Date().toISOString() 
+      })
       .eq('active', true);
 
     if (deactivateError) {
@@ -347,25 +347,36 @@ export async function POST() {
       throw new Error(`Erro ao desativar empresas: ${deactivateError.message}`);
     }
 
-    console.log('✅ [SYNC] Empresas existentes desativadas');
+    console.log(`✅ [SYNC] ${deactivatedCount || 'Todas'} empresas desativadas`);
 
-    // 4.2. Inserir/reativar empresas da sincronização atual
+    // 4.2 SEGUNDO: Inserir/reativar apenas empresas da sincronização atual
+    console.log('\n📝 [SYNC] Passo 2: Inserindo/reativando empresas atuais...');
+    
     let createdCount = 0;
-    let updatedCount = 0;
+    let reactivatedCount = 0;
     let errorCount = 0;
     const results = [];
 
     for (const company of companies) {
       try {
-        // Verificar se empresa já existe (por nome)
-        const { data: existing, error: fetchError } = await supabase
+        console.log(`\n🔄 [SYNC] Processando: "${company.name}"`);
+        
+        // Verificar se empresa já existe (por nome exato)
+        const { data: existingCompany, error: fetchError } = await supabase
           .from('companies')
-          .select('*')
+          .select('id, name, slug, active')
           .eq('name', company.name)
-          .single();
+          .maybeSingle();
 
-        if (existing && !fetchError) {
-          // Reativar e atualizar empresa existente
+        if (fetchError) {
+          console.error(`❌ [SYNC] Erro ao buscar "${company.name}":`, fetchError);
+          throw fetchError;
+        }
+
+        if (existingCompany) {
+          // Empresa existe: reativar e atualizar
+          console.log(`   📝 Reativando empresa existente...`);
+          
           const { error: updateError } = await supabase
             .from('companies')
             .update({
@@ -374,10 +385,10 @@ export async function POST() {
               active: true,
               updated_at: new Date().toISOString()
             })
-            .eq('id', existing.id);
+            .eq('id', existingCompany.id);
 
           if (updateError) {
-            console.error(`❌ [SYNC] Erro ao reativar ${company.name}:`, updateError);
+            console.error(`❌ [SYNC] Erro ao reativar "${company.name}":`, updateError);
             errorCount++;
             results.push({ 
               company: company.name, 
@@ -385,12 +396,18 @@ export async function POST() {
               error: updateError.message 
             });
           } else {
-            console.log(`✅ [SYNC] Reativada: ${company.name}`);
-            updatedCount++;
-            results.push({ company: company.name, status: 'reactivated' });
+            console.log(`   ✅ Reativada: "${company.name}"`);
+            reactivatedCount++;
+            results.push({ 
+              company: company.name, 
+              status: 'reactivated',
+              slug: company.slug
+            });
           }
         } else {
-          // Criar nova empresa
+          // Empresa não existe: criar nova
+          console.log(`   📝 Criando nova empresa...`);
+          
           const { error: insertError } = await supabase
             .from('companies')
             .insert({
@@ -401,7 +418,7 @@ export async function POST() {
             });
 
           if (insertError) {
-            console.error(`❌ [SYNC] Erro ao criar ${company.name}:`, insertError);
+            console.error(`❌ [SYNC] Erro ao criar "${company.name}":`, insertError);
             errorCount++;
             results.push({ 
               company: company.name, 
@@ -409,54 +426,56 @@ export async function POST() {
               error: insertError.message 
             });
           } else {
-            console.log(`✅ [SYNC] Criada: ${company.name}`);
+            console.log(`   ✅ Criada: "${company.name}"`);
             createdCount++;
-            results.push({ company: company.name, status: 'created' });
+            results.push({ 
+              company: company.name, 
+              status: 'created',
+              slug: company.slug
+            });
           }
         }
       } catch (companyError) {
-        console.error(`❌ [SYNC] Erro geral para ${company.name}:`, companyError);
+        console.error(`❌ [SYNC] Erro geral para "${company.name}":`, companyError);
         errorCount++;
         const errorMsg = companyError instanceof Error ? companyError.message : 'Erro desconhecido';
-        results.push({ company: company.name, status: 'error', error: errorMsg });
+        results.push({ 
+          company: company.name, 
+          status: 'error', 
+          error: errorMsg 
+        });
       }
     }
-
-    // 4.3. Contar empresas desativadas
-    const { data: deactivatedCompanies, error: countError } = await supabase
-      .from('companies')
-      .select('name')
-      .eq('active', false);
-
-    const deactivatedCount = deactivatedCompanies?.length || 0;
 
     // 5. Resultado final
     const finalResult: SyncResult = {
       success: true,
-      message: `Sincronização REPLACE ALL concluída: ${createdCount} criadas, ${updatedCount} reativadas, ${deactivatedCount} desativadas, ${errorCount} erros`,
+      message: `REPLACE ALL concluído: ${createdCount} criadas, ${reactivatedCount} reativadas, ${deactivatedCount || 0} desativadas, ${errorCount} erros`,
       stats: {
         totalProcessed: companies.length,
         created: createdCount,
-        updated: updatedCount,
-        deactivated: deactivatedCount,
+        updated: reactivatedCount,
+        deactivated: deactivatedCount || 0,
         errors: errorCount
       },
       companies: companies,
       details: results,
-      errorDetails: [
-        ...errorDetails.map(e => `EXTRAÇÃO: ${e}`),
-        ...results.filter(r => r.status === 'error').map(r => `DATABASE: ${r.company} - ${r.error}`)
-      ],
+      errorDetails: errorDetails,
       skippedTasks
     };
 
     console.log(`\n🎯 [SYNC] RESULTADO FINAL:`);
-    console.log(`   📊 Tasks processadas: ${totalTasks}`);
+    console.log(`   📊 Tasks do Asana: ${totalTasks}`);
     console.log(`   🏢 Empresas extraídas: ${companies.length}`);
     console.log(`   ✅ Criadas: ${createdCount}`);
-    console.log(`   🔄 Reativadas: ${updatedCount}`);
-    console.log(`   ⛔ Desativadas: ${deactivatedCount}`);
+    console.log(`   🔄 Reativadas: ${reactivatedCount}`);
+    console.log(`   ⛔ Desativadas: ${deactivatedCount || 0}`);
     console.log(`   ❌ Erros: ${errorCount}`);
+    
+    if (errorCount === 0) {
+      console.log('\n🎉 SINCRONIZAÇÃO 100% SUCESSFUL!');
+      console.log('✅ Database agora reflete exatamente as empresas do Asana');
+    }
 
     return NextResponse.json(finalResult);
 
@@ -467,11 +486,10 @@ export async function POST() {
     
     return NextResponse.json({
       success: false,
-      error: 'Falha na sincronização com Asana',
+      error: 'Falha na sincronização',
       details: errorMessage,
       message: `Erro: ${errorMessage}`,
       stats: { totalProcessed: 0, created: 0, updated: 0, deactivated: 0, errors: 1 },
-      errorDetails: [errorMessage],
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
@@ -484,7 +502,7 @@ export async function GET() {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !serviceKey) {
-      throw new Error('Variáveis Supabase não configuradas');
+      throw new Error('Variáveis não configuradas');
     }
 
     const { createClient } = await import('@supabase/supabase-js');
@@ -498,9 +516,7 @@ export async function GET() {
       .eq('active', true)
       .order('name');
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const companiesInDatabase = companies?.length || 0;
     const token = process.env.ASANA_ACCESS_TOKEN;
@@ -509,7 +525,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       companiesInDatabase,
-      companiesInAsana: asanaConfigured ? 'Configurado' : 'Token não configurado',
+      companiesInAsana: asanaConfigured ? 'Configurado' : 'Não configurado',
       needsSync: companiesInDatabase === 0,
       asanaConfigured,
       companies: companies || [],
@@ -517,16 +533,12 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('❌ [GET] Erro ao verificar status:', error);
+    console.error('❌ [GET] Erro:', error);
     
     return NextResponse.json({
       success: false,
-      error: 'Erro ao verificar status das empresas',
+      error: 'Erro ao verificar status',
       details: error instanceof Error ? error.message : 'Erro desconhecido',
-      companiesInDatabase: 0,
-      companiesInAsana: 'Erro',
-      needsSync: true,
-      asanaConfigured: false,
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
