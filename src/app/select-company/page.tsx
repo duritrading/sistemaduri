@@ -173,32 +173,6 @@ export default function SelectCompanyPage() {
             </div>
           </div>
 
-          {/* ✅ COMPANY SELECTION */}
-          <div className="space-y-4">
-            {/* Minha Empresa */}
-            <div 
-              onClick={() => setSelectedCompany('user-company')}
-              className={`p-4 rounded-xl cursor-pointer transition-all ${
-                selectedCompany === 'user-company' 
-                ? 'bg-blue-500/20 border-2 border-blue-400' 
-                : 'bg-white/10 border border-white/20 hover:bg-white/15'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-white font-semibold">
-                    Minha Empresa
-                  </div>
-                  <div className="text-white/60 text-sm">
-                    {userCompany?.display_name}
-                  </div>
-                </div>
-                {selectedCompany === 'user-company' && (
-                  <Check size={20} className="text-blue-400" />
-                )}
-              </div>
-            </div>
-
             {/* Lista de Empresas do Asana */}
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {companies.map((company) => (
@@ -216,7 +190,7 @@ export default function SelectCompanyPage() {
                       <div className="text-white font-medium">
                         {company.displayName}
                       </div>
-                      <div className="text-white/50 text-xs">
+                      <div className="text-white text-sm">
                         {company.name}
                       </div>
                     </div>
@@ -258,6 +232,5 @@ export default function SelectCompanyPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
+  )
+  }
