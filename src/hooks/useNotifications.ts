@@ -1,9 +1,10 @@
-// src/hooks/useNotifications.ts - HOOK SUPER ROBUSTO PARA NOTIFICAÇÕES
+// src/hooks/useNotifications.ts - COM FILTRO POR EMPRESA
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CommentNotification, NotificationState, NOTIFICATION_CONFIG } from '@/types/notifications';
 
 interface UseNotificationsProps {
   userId: string;
+  companyName?: string; // ✅ NOVO: Filtro por empresa
   enabled?: boolean;
   pollingInterval?: number;
 }
@@ -14,10 +15,12 @@ interface UseNotificationsReturn extends NotificationState {
   clearNotifications: () => void;
   refreshNotifications: () => Promise<void>;
   retryCount: number;
+  companyName?: string; // ✅ Para debug
 }
 
 export function useNotifications({
   userId,
+  companyName, // ✅ NOVO parâmetro
   enabled = true,
   pollingInterval = NOTIFICATION_CONFIG.POLLING_INTERVAL
 }: UseNotificationsProps): UseNotificationsReturn {
@@ -36,7 +39,7 @@ export function useNotifications({
   const abortControllerRef = useRef<AbortController | null>(null);
   const maxRetries = 3;
 
-  // ✅ Função para buscar notificações com retry automático
+  // ✅ Função para buscar notificações COM FILTRO DE EMPRESA
   const fetchNotifications = useCallback(async () => {
     if (!enabled || !userId) return;
 
@@ -50,7 +53,16 @@ export function useNotifications({
 
       setState(prev => ({ ...prev, loading: true, error: null }));
 
+      // ✅ CONSTRUIR PARAMS COM FILTRO DE EMPRESA
       const params = new URLSearchParams({ userId });
+      
+      // ✅ ADICIONAR FILTRO DE EMPRESA SE DISPONÍVEL
+      if (companyName && companyName.trim() !== '') {
+        params.append('company', companyName);
+        console.log(`🔔 [Hook] Buscando notificações para empresa: ${companyName}`);
+      } else {
+        console.log(`🔔 [Hook] Buscando notificações (todas empresas - admin mode?)`);
+      }
 
       const response = await fetch(`/api/notifications?${params.toString()}`, {
         signal: abortControllerRef.current.signal,
@@ -75,7 +87,13 @@ export function useNotifications({
         // Reset retry count em caso de sucesso
         setRetryCount(0);
         
-        console.log(`🔔 [Hook] Notificações carregadas: ${result.data?.length || 0}`);
+        console.log(`🔔 [Hook] Notificações carregadas: ${result.data?.length || 0} (empresa: ${companyName || 'todas'})`);
+        
+        // ✅ LOG DEBUG DA EMPRESA FILTRADA
+        if (result.companyFilter) {
+          console.log(`📋 [Hook] Filtradas para empresa: ${result.companyFilter}`);
+        }
+        
         return;
       }
 
@@ -118,7 +136,7 @@ export function useNotifications({
       }));
 
     }
-  }, [userId, enabled, retryCount]);
+  }, [userId, companyName, enabled, retryCount]); // ✅ Adicionar companyName nas deps
 
   // ✅ Função para marcar todas como lidas (simplificada)
   const markAllAsRead = useCallback(async () => {
@@ -143,7 +161,7 @@ export function useNotifications({
         error: null
       }));
 
-      console.log(`✅ [Hook] Notificações marcadas como lidas (local)`);
+      console.log(`✅ [Hook] Notificações marcadas como lidas (empresa: ${companyName || 'todas'})`);
 
     } catch (error) {
       console.warn('⚠️ [Hook] Erro ao marcar como lidas (API), mas atualizando localmente:', error);
@@ -155,7 +173,7 @@ export function useNotifications({
         notifications: prev.notifications.map(n => ({ ...n, isNew: false }))
       }));
     }
-  }, [userId, enabled]);
+  }, [userId, companyName, enabled]); // ✅ Adicionar companyName
 
   // ✅ Função para limpar notificações
   const clearNotifications = useCallback(() => {
@@ -175,6 +193,21 @@ export function useNotifications({
     setRetryCount(0);
     await fetchNotifications();
   }, [fetchNotifications]);
+
+  // ✅ RESETAR NOTIFICAÇÕES QUANDO EMPRESA MUDAR
+  useEffect(() => {
+    // Limpar notificações anteriores quando empresa mudar
+    setState(prev => ({
+      ...prev,
+      notifications: [],
+      unreadCount: 0,
+      lastChecked: '',
+      error: null
+    }));
+    setRetryCount(0);
+    
+    console.log(`🔄 [Hook] Empresa mudou para: ${companyName || 'todas'} - resetando notificações`);
+  }, [companyName]);
 
   // ✅ Setup do polling com proteção contra erros
   useEffect(() => {
@@ -201,7 +234,7 @@ export function useNotifications({
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [enabled, userId, pollingInterval, retryCount, fetchNotifications]);
+  }, [enabled, userId, companyName, pollingInterval, retryCount, fetchNotifications]); // ✅ Adicionar companyName
 
   // ✅ Cleanup no unmount
   useEffect(() => {
@@ -217,6 +250,7 @@ export function useNotifications({
     markAllAsRead,
     clearNotifications,
     refreshNotifications,
-    retryCount
+    retryCount,
+    companyName // ✅ Para debug/monitoramento
   };
 }

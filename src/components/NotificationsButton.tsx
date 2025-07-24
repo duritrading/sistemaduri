@@ -1,34 +1,58 @@
-// src/components/NotificationsButton.tsx - BOTÃO DE NOTIFICAÇÕES OTIMIZADO COM HOOK
+// src/components/NotificationsButton.tsx - COM FILTRO POR EMPRESA
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Bell, BellRing, MessageSquare, User, Calendar, X, RefreshCw } from 'lucide-react';
+import { Bell, BellRing, MessageSquare, User, Calendar, X, RefreshCw, Building2 } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useAuth } from '@/hooks/useAuth';
 
 interface NotificationsButtonProps {
-  userId?: string;
   enabled?: boolean;
 }
 
 export function NotificationsButton({ 
-  userId = 'default-user',
   enabled = true 
 }: NotificationsButtonProps) {
   
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // ✅ Usar hook customizado
+  // ✅ OBTER DADOS DO USUÁRIO E EMPRESA
+  const { user, profile, company } = useAuth();
+
+  // ✅ OBTER EMPRESA EFETIVA (CONSIDERA SELEÇÃO DO ADMIN)
+  const getEffectiveCompany = () => {
+    if (profile?.role === 'admin') {
+      try {
+        const adminSelected = localStorage.getItem('admin_selected_company');
+        if (adminSelected) {
+          const selectedCompany = JSON.parse(adminSelected);
+          return selectedCompany;
+        }
+      } catch (e) {
+        console.warn('Erro ao ler empresa selecionada pelo admin:', e);
+      }
+    }
+    return company; // Retorna empresa padrão do usuário
+  };
+
+  const effectiveCompany = getEffectiveCompany();
+  const userId = user?.id || 'anonymous';
+  const companyName = effectiveCompany?.name; // ✅ Nome da empresa para filtro
+
+  // ✅ Usar hook customizado COM FILTRO DE EMPRESA
   const {
     notifications,
     unreadCount,
     loading,
     error,
     markAllAsRead,
-    refreshNotifications
+    refreshNotifications,
+    companyName: hookCompanyName
   } = useNotifications({
     userId,
-    enabled
+    companyName, // ✅ PASSAR EMPRESA PARA FILTRO
+    enabled: enabled && !!user // Só habilitar se usuário logado
   });
 
   // ✅ Formatar data para exibição
@@ -86,154 +110,166 @@ export function NotificationsButton({
     await refreshNotifications();
   };
 
+  // ✅ NÃO RENDERIZAR SE USUÁRIO NÃO LOGADO
+  if (!user || !effectiveCompany) {
+    return null;
+  }
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* ✅ Botão de Notificações */}
       <button
         onClick={toggleDropdown}
         className="relative flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-[#b51c26] hover:bg-[#b51c26]/10 rounded-lg transition-all duration-200 group"
-        title={`${unreadCount} notificações não lidas`}
+        title={`${unreadCount} notificações de ${effectiveCompany.display_name || effectiveCompany.name}`}
       >
         {/* Ícone do sino */}
         {unreadCount > 0 ? (
-          <BellRing className="w-5 h-5 group-hover:scale-110 transition-transform text-[#b51c26]" />
+          <BellRing size={20} className="text-[#b51c26] animate-pulse" />
         ) : (
-          <Bell className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          <Bell size={20} className="group-hover:text-[#b51c26]" />
         )}
 
         {/* Badge de contagem */}
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-[#b51c26] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold animate-pulse">
+          <span className="absolute -top-1 -right-1 bg-[#b51c26] text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center animate-pulse">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
 
-        {/* Texto (desktop) */}
-        <span className="text-xs text-gray-500 hidden lg:block">
-          {unreadCount > 0 ? 'Notificações' : 'Sem alertas'}
-        </span>
+        {/* Loading spinner */}
+        {loading && (
+          <div className="absolute -top-1 -right-1">
+            <div className="w-3 h-3 border border-[#b51c26] border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
       </button>
 
       {/* ✅ Dropdown de Notificações */}
       {isOpen && (
-        <div className="absolute right-0 top-12 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 max-h-96 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-96 max-w-[90vw] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 max-h-[80vh] overflow-hidden">
           
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-[#b51c26]/5 to-transparent">
+          {/* Header do dropdown */}
+          <div className="flex items-center justify-between p-4 border-b bg-gray-50/50">
             <div className="flex items-center space-x-2">
-              <BellRing className="w-5 h-5 text-[#b51c26]" />
-              <h3 className="font-semibold text-gray-900">Notificações</h3>
-              {notifications.length > 0 && (
-                <span className="text-xs text-gray-500">
-                  ({notifications.length})
+              <BellRing size={18} className="text-[#b51c26]" />
+              <h3 className="font-semibold text-gray-900">
+                Notificações
+              </h3>
+              {unreadCount > 0 && (
+                <span className="bg-[#b51c26] text-white text-xs px-2 py-1 rounded-full font-medium">
+                  {unreadCount}
                 </span>
               )}
             </div>
             
             <div className="flex items-center space-x-2">
+              {/* ✅ INDICADOR DA EMPRESA FILTRADA */}
+              <div className="flex items-center space-x-1 bg-[#b51c26]/10 px-2 py-1 rounded-lg">
+                <Building2 size={12} className="text-[#b51c26]" />
+                <span className="text-xs text-[#b51c26] font-medium">
+                  {effectiveCompany.display_name || effectiveCompany.name}
+                </span>
+              </div>
+              
               <button
                 onClick={handleRefresh}
-                disabled={loading}
-                className="p-1 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+                className="p-1 hover:bg-gray-200 rounded transition-colors"
                 title="Atualizar notificações"
+                disabled={loading}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw size={14} className={`text-gray-500 ${loading ? 'animate-spin' : ''}`} />
               </button>
               
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                className="p-1 hover:bg-gray-200 rounded transition-colors"
               >
-                <X className="w-4 h-4 text-gray-500" />
+                <X size={14} className="text-gray-500" />
               </button>
             </div>
           </div>
 
-          {/* Conteúdo */}
-          <div className="max-h-80 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="text-center">
-                  <Bell className="w-8 h-8 animate-pulse text-[#b51c26] mx-auto mb-2" />
-                  <p className="text-sm text-gray-600">Buscando notificações...</p>
+          {/* Lista de notificações */}
+          <div className="max-h-96 overflow-y-auto">
+            {error ? (
+              <div className="p-4 text-center">
+                <div className="text-red-500 text-sm mb-2">
+                  {error}
                 </div>
+                <button
+                  onClick={handleRefresh}
+                  className="text-[#b51c26] text-sm hover:underline"
+                >
+                  Tentar novamente
+                </button>
               </div>
-            ) : error ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="text-center">
-                  <Bell className="w-8 h-8 text-red-400 mx-auto mb-2" />
-                  <p className="text-red-600 font-medium mb-1">Erro ao carregar</p>
-                  <p className="text-gray-500 text-xs mb-3">{error}</p>
-                  <button
-                    onClick={handleRefresh}
-                    className="px-3 py-1 bg-[#b51c26] text-white text-xs rounded hover:bg-[#dc2626] transition-colors"
-                  >
-                    Tentar Novamente
-                  </button>
+            ) : loading && notifications.length === 0 ? (
+              <div className="p-4 text-center">
+                <div className="flex items-center justify-center space-x-2 text-gray-500">
+                  <RefreshCw size={16} className="animate-spin" />
+                  <span className="text-sm">Buscando notificações...</span>
                 </div>
               </div>
             ) : notifications.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <Bell className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium mb-1">Nenhuma notificação</p>
-                  <p className="text-gray-500 text-sm">
-                    Você será notificado quando houver novos comentários
-                  </p>
+              <div className="p-6 text-center text-gray-500">
+                <Bell size={32} className="mx-auto mb-3 opacity-30" />
+                <div className="text-sm font-medium mb-1">Nenhuma notificação</div>
+                <div className="text-xs">
+                  Você será notificado quando houver novos comentários em processos da {effectiveCompany.display_name || effectiveCompany.name}
                 </div>
               </div>
             ) : (
-              <div className="divide-y divide-gray-100">
-                {notifications.map((notification) => (
-                  <div 
-                    key={notification.id}
-                    className={`p-4 hover:bg-gray-50 transition-colors ${
-                      notification.isNew ? 'bg-[#b51c26]/5 border-l-2 border-l-[#b51c26]' : ''
-                    }`}
-                  >
-                    {/* Header da notificação */}
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 bg-gradient-to-r from-[#b51c26] to-[#dc2626] rounded-full flex items-center justify-center">
-                          <MessageSquare className="w-4 h-4 text-white" />
+              notifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  className={`p-3 border-b last:border-b-0 hover:bg-gray-50 transition-colors ${
+                    notification.isNew ? 'bg-[#b51c26]/5 border-l-2 border-l-[#b51c26]' : ''
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <div className="flex-shrink-0 mt-1">
+                      <MessageSquare size={16} className="text-[#b51c26]" />
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <div className="text-xs font-medium text-gray-900 truncate">
+                          {notification.taskTitle}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            Novo comentário
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            por {notification.author}
-                          </p>
-                        </div>
+                        {notification.isNew && (
+                          <div className="w-2 h-2 bg-[#b51c26] rounded-full flex-shrink-0"></div>
+                        )}
                       </div>
                       
-                      <div className="flex items-center space-x-1 text-xs text-gray-500">
-                        <Calendar className="w-3 h-3" />
+                      <div className="text-sm text-gray-700 mb-2 line-clamp-2">
+                        {notification.commentText}
+                      </div>
+                      
+                      <div className="flex items-center space-x-2 text-xs text-gray-500">
+                        <User size={12} />
+                        <span>{notification.author}</span>
+                        <Calendar size={12} className="ml-2" />
                         <span>{formatTimeAgo(notification.createdAt)}</span>
                       </div>
                     </div>
-
-                    {/* Tarefa */}
-                    <p className="text-sm text-gray-700 mb-2 font-medium truncate">
-                      📋 {notification.taskTitle}
-                    </p>
-
-                    {/* Comentário */}
-                    <p className="text-sm text-gray-800 bg-gray-50 rounded-lg p-2 border-l-2 border-l-[#b51c26]">
-                      "{notification.commentText}"
-                    </p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))
             )}
           </div>
 
           {/* Footer */}
           {notifications.length > 0 && (
-            <div className="p-3 border-t border-gray-200 bg-gray-50 text-center">
-              <p className="text-xs text-gray-500">
-                Atualizações automáticas a cada 30 segundos
-              </p>
+            <div className="p-3 border-t bg-gray-50/50 text-center">
+              <div className="text-xs text-gray-500">
+                Mostrando comentários de processos da {effectiveCompany.display_name || effectiveCompany.name}
+                {profile?.role === 'admin' && (
+                  <span className="block mt-1 text-[#b51c26] font-medium">
+                    Modo Administrador - Empresa Selecionada
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
