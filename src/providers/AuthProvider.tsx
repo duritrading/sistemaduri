@@ -1,7 +1,7 @@
-// src/providers/AuthProvider.tsx - SEM LOOPS INFINITOS + MODAL BONITO
+// src/providers/AuthProvider.tsx - SEM LOOPS NO FOCUS + PROTEÇÃO TOTAL
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext, type User, type UserProfile, type Company } from '@/contexts/AuthContext';
 import { AccessDeniedModal } from '@/components/AccessDeniedModal';
@@ -109,6 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     title: '',
     message: ''
   });
+
+  // ✅ CONTROLES AVANÇADOS PARA EVITAR LOOPS
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [lastCheckTime, setLastCheckTime] = useState(0);
+  const [failedChecks, setFailedChecks] = useState(0);
+  const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const router = useRouter();
 
@@ -132,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initClient();
   }, []);
 
-  // ✅ SIGN OUT SEM LOOP - LIMPA TUDO
+  // ✅ SIGN OUT SEM LOOP - LIMPA TUDO + PARA VERIFICAÇÕES
   const signOut = async (): Promise<void> => {
     if (isLoggingOut) {
       console.log('⚠️ Logout já em andamento - ignorando chamada duplicada');
@@ -141,7 +148,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     console.log('🔄 Iniciando logout...');
     setIsLoggingOut(true);
-    setShouldStopChecking(true); // ✅ PARAR TODAS AS VERIFICAÇÕES
+    setShouldStopChecking(true);
+    
+    // ✅ LIMPAR TODOS OS TIMERS E VERIFICAÇÕES
+    if (focusTimeoutRef.current) {
+      clearTimeout(focusTimeoutRef.current);
+      focusTimeoutRef.current = null;
+    }
+    if (checkIntervalRef.current) {
+      clearInterval(checkIntervalRef.current);
+      checkIntervalRef.current = null;
+    }
     
     // Limpar estado local primeiro
     setUser(null);
@@ -150,6 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
     setError(null);
     setShowAccessDeniedModal(false);
+    setIsCheckingStatus(false);
+    setFailedChecks(0);
     
     try {
       if (isClient && supabaseConfigured) {
@@ -172,7 +191,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     setLoading(false);
     
-    // ✅ REDIRECIONAR E RESETAR ESTADOS
     try {
       router.push('/login');
     } catch (routerError) {
@@ -185,13 +203,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => {
       setIsLoggingOut(false);
       setShouldStopChecking(false);
-    }, 2000);
+    }, 3000);
     
     console.log('✅ Logout concluído');
   };
 
   // ✅ MOSTRAR MODAL DE ACESSO NEGADO
   const showAccessDenied = (reason: string) => {
+    // ✅ PARAR TODAS AS VERIFICAÇÕES IMEDIATAMENTE
+    setShouldStopChecking(true);
+    
     const messages = {
       'USER_DELETED': {
         title: 'Conta Removida',
@@ -213,45 +234,97 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setShowAccessDeniedModal(true);
   };
 
-  // ✅ VERIFICAR STATUS ATIVO - SEM LOOPS
-  const checkUserActiveStatus = useCallback(async (currentUser: User) => {
-    // ✅ NÃO VERIFICAR SE JÁ ESTÁ FAZENDO LOGOUT OU DEVE PARAR
-    if (!isClient || !supabaseConfigured || !currentUser || isLoggingOut || shouldStopChecking) {
+  // ✅ VERIFICAR STATUS ATIVO - COM PROTEÇÃO TOTAL CONTRA LOOPS
+  const checkUserActiveStatus = useCallback(async (currentUser: User, source: string = 'unknown') => {
+    // ✅ VERIFICAÇÕES DE SEGURANÇA TOTAL
+    if (!isClient || !supabaseConfigured || !currentUser || isLoggingOut || shouldStopChecking || isCheckingStatus) {
+      console.log(`⏭️ Pulando verificação de status (${source}):`, {
+        isClient,
+        supabaseConfigured: !!supabaseConfigured,
+        hasUser: !!currentUser,
+        isLoggingOut,
+        shouldStopChecking,
+        isCheckingStatus
+      });
       return;
     }
 
+    // ✅ DEBOUNCE: NÃO VERIFICAR MUITO FREQUENTEMENTE
+    const now = Date.now();
+    const timeSinceLastCheck = now - lastCheckTime;
+    const minInterval = 30000; // 30 segundos mínimo entre verificações
+    
+    if (timeSinceLastCheck < minInterval) {
+      console.log(`⏭️ Verificação muito recente (${source}), aguardando ${minInterval - timeSinceLastCheck}ms`);
+      return;
+    }
+
+    // ✅ BACKOFF EXPONENCIAL SE MUITAS FALHAS
+    if (failedChecks >= 3) {
+      const backoffTime = Math.pow(2, failedChecks) * 1000; // 8s, 16s, 32s...
+      if (timeSinceLastCheck < backoffTime) {
+        console.log(`⏭️ Backoff ativo (${failedChecks} falhas), aguardando ${backoffTime - timeSinceLastCheck}ms`);
+        return;
+      }
+    }
+
+    setIsCheckingStatus(true);
+    setLastCheckTime(now);
+
     try {
-      console.log('🔍 Verificando status ativo para:', currentUser.email);
+      console.log(`🔍 Verificando status ativo para: ${currentUser.email} (${source})`);
+      
+      // ✅ TIMEOUT NA REQUEST
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
       
       const response = await fetch('/api/auth/validate-active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
+        body: JSON.stringify({ userId: currentUser.id }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        console.warn('⚠️ Erro na verificação de status:', response.status);
-        return;
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const result = await response.json();
       
       if (!result.success && result.shouldLogout) {
         console.log('🚨 USUÁRIO DEVE SER DESLOGADO:', result.reason);
-        
-        // ✅ MOSTRAR MODAL BONITO AO INVÉS DE ALERT
         showAccessDenied(result.reason);
+        setFailedChecks(0); // Reset no caso de sucesso na verificação
         return;
       }
 
       if (result.success) {
-        console.log('✅ Status ativo confirmado para:', currentUser.email);
+        console.log(`✅ Status ativo confirmado para: ${currentUser.email} (${source})`);
+        setFailedChecks(0); // Reset contador de falhas
       }
 
     } catch (error) {
-      console.warn('⚠️ Erro na verificação de status ativo:', error);
+      console.warn(`⚠️ Erro na verificação de status ativo (${source}):`, error);
+      
+      // ✅ INCREMENTAR CONTADOR DE FALHAS
+      setFailedChecks(prev => {
+        const newCount = prev + 1;
+        console.log(`❌ Falha ${newCount} na verificação de status`);
+        
+        // ✅ SE MUITAS FALHAS CONSECUTIVAS, PARAR VERIFICAÇÕES
+        if (newCount >= 5) {
+          console.log('🛑 Muitas falhas consecutivas - parando verificações');
+          setShouldStopChecking(true);
+        }
+        
+        return newCount;
+      });
+    } finally {
+      setIsCheckingStatus(false);
     }
-  }, [isClient, supabaseConfigured, isLoggingOut, shouldStopChecking]);
+  }, [isClient, supabaseConfigured, isLoggingOut, shouldStopChecking, isCheckingStatus, lastCheckTime, failedChecks]);
 
   // ✅ LOAD USER DATA COM VERIFICAÇÃO RIGOROSA - SEM FALLBACKS
   const loadUserData = useCallback(async (currentUser: User) => {
@@ -324,6 +397,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setError(null);
               setShowAccessDeniedModal(false);
               setShouldStopChecking(false);
+              setFailedChecks(0);
             }
           }
         );
@@ -340,37 +414,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, [isClient, supabaseConfigured, loadUserData]);
 
-  // ✅ VERIFICAÇÃO PERIÓDICA - COM PROTEÇÃO CONTRA LOOPS
+  // ✅ VERIFICAÇÃO PERIÓDICA - COM PROTEÇÃO AVANÇADA
   useEffect(() => {
-    if (!user || !isClient || !supabaseConfigured || isLoggingOut || shouldStopChecking) return;
-
-    // Verificar imediatamente
-    checkUserActiveStatus(user);
-
-    // Verificar a cada 2 minutos
-    const interval = setInterval(() => {
-      if (!isLoggingOut && !shouldStopChecking) {
-        checkUserActiveStatus(user);
+    if (!user || !isClient || !supabaseConfigured || isLoggingOut || shouldStopChecking) {
+      // Limpar interval existente se condições não são atendidas
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
       }
-    }, 120000);
+      return;
+    }
 
-    return () => clearInterval(interval);
+    // Verificar imediatamente (com debounce)
+    checkUserActiveStatus(user, 'periodic-init');
+
+    // Verificar a cada 3 minutos (aumentei de 2 para 3 para reduzir carga)
+    checkIntervalRef.current = setInterval(() => {
+      if (!isLoggingOut && !shouldStopChecking && !isCheckingStatus) {
+        checkUserActiveStatus(user, 'periodic-interval');
+      }
+    }, 180000); // 3 minutos
+
+    return () => {
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+    };
   }, [user, checkUserActiveStatus, isLoggingOut, shouldStopChecking]);
 
-  // ✅ VERIFICAR EM FOCUS EVENTS - COM PROTEÇÃO
+  // ✅ VERIFICAR EM FOCUS EVENTS - COM DEBOUNCE PESADO
   useEffect(() => {
     if (!user || !isClient || isLoggingOut || shouldStopChecking) return;
 
     const handleFocus = () => {
-      if (!isLoggingOut && !shouldStopChecking) {
-        console.log('🔄 Foco retornado - verificando status do usuário');
-        checkUserActiveStatus(user);
+      // ✅ LIMPAR TIMEOUT ANTERIOR
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
       }
+      
+      // ✅ DEBOUNCE DE 5 SEGUNDOS NO FOCUS
+      focusTimeoutRef.current = setTimeout(() => {
+        if (!isLoggingOut && !shouldStopChecking && !isCheckingStatus) {
+          console.log('🔄 Foco retornado após debounce - verificando status do usuário');
+          checkUserActiveStatus(user, 'focus-event');
+        } else {
+          console.log('⏭️ Focus ignorado - sistema ocupado');
+        }
+      }, 5000);
     };
 
     window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [user, checkUserActiveStatus, isLoggingOut, shouldStopChecking]);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+        focusTimeoutRef.current = null;
+      }
+    };
+  }, [user, checkUserActiveStatus, isLoggingOut, shouldStopChecking, isCheckingStatus]);
+
+  // ✅ CLEANUP GERAL AO DESMONTAR
+  useEffect(() => {
+    return () => {
+      if (focusTimeoutRef.current) {
+        clearTimeout(focusTimeoutRef.current);
+      }
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+      }
+    };
+  }, []);
 
   // ✅ SIGN IN
   const signIn = async (email: string, password: string): Promise<void> => {
@@ -380,7 +495,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setLoading(true);
     setError(null);
-    setShouldStopChecking(false); // ✅ PERMITIR VERIFICAÇÕES NOVAMENTE
+    setShouldStopChecking(false);
+    setFailedChecks(0); // Reset contador de falhas ao fazer novo login
     
     try {
       console.log('🔄 Tentando login para:', email);
