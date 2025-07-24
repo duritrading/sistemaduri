@@ -1,9 +1,117 @@
-// src/app/api/sync-companies/route.ts - VERSÃO COM UPSERT PARA EVITAR DUPLICATAS
+// src/app/api/sync-companies/route.ts - STRICT MODE - SÓ FORMATO "número + empresa"
 import { NextResponse } from 'next/server';
+
+// ✅ EXTRAÇÃO ESTRITA - MESMA LÓGICA DO unified/route.ts
+function extractCompanyNameStrict(title: string): string | null {
+  if (!title || typeof title !== 'string') return null;
+  
+  // ✅ Limpar título (remover timestamps se houver)
+  let cleanTitle = title.trim();
+  cleanTitle = cleanTitle.replace(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+[A-Z]{3,4}\s+/, '').trim();
+  
+  // ✅ PADRÃO ESTRITO: APENAS "número + empresa" ou "número + empresa + (detalhes)"
+  // ✅ Aceitos: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "13º.1 NATURALLY"
+  // ❌ Rejeitados: "DURI TRADING", "EXPOFRUT (IMPORTAÇÃO)", qualquer coisa sem número
+  
+  const strictPattern = /^\d+º(?:\.\d+)?\s+([A-Z][A-Za-z\s&.'-]+?)(?:\s*\(.*)?$/i;
+  const match = cleanTitle.match(strictPattern);
+  
+  if (match && match[1]) {
+    let company = match[1].trim().toUpperCase();
+    
+    // ✅ Validações de qualidade
+    if (company.length >= 2 &&           // Mínimo 2 caracteres
+        company.length <= 50 &&          // Máximo 50 caracteres  
+        company.match(/[A-Z]/) &&        // Deve ter pelo menos uma letra
+        !company.match(/^[\d\s]*$/)) {   // Não pode ser só números/espaços
+      
+      console.log(`✅ Empresa aceita no sync: "${cleanTitle}" → "${company}"`);
+      return company;
+    }
+  }
+  
+  // ✅ DEBUG: Log de títulos rejeitados
+  console.log(`❌ Título rejeitado no sync (não segue padrão): "${cleanTitle}"`);
+  return null;
+}
+
+// ✅ EXTRAÇÃO ESTRITA DE EMPRESAS DOS TRACKINGS
+function extractCompaniesFromTrackingsStrict(trackings: any[]): any[] {
+  if (!trackings || !Array.isArray(trackings)) {
+    console.warn('⚠️ Trackings inválidos para extração de empresas');
+    return [];
+  }
+
+  console.log(`🔍 Extraindo empresas STRICT MODE de ${trackings.length} trackings...`);
+  
+  const companySet = new Set<string>();
+  let validCount = 0;
+  let rejectedCount = 0;
+  
+  trackings.forEach((tracking, index) => {
+    const title = tracking.name || tracking.title || '';
+    if (!title) return;
+
+    const extractedCompany = extractCompanyNameStrict(title);
+    
+    if (extractedCompany) {
+      companySet.add(extractedCompany);
+      validCount++;
+      console.log(`✅ [${index + 1}] "${title}" → "${extractedCompany}"`);
+    } else {
+      rejectedCount++;
+      console.log(`❌ [${index + 1}] "${title}" → REJEITADO (sem padrão número+empresa)`);
+    }
+  });
+
+  // Converter Set para Array de Company objects
+  const companiesArray = Array.from(companySet)
+    .sort()
+    .map((name, index) => ({
+      id: generateCompanyId(name),
+      name: name,
+      displayName: formatDisplayName(name)
+    }));
+
+  console.log(`\n📊 RESULTADO EXTRAÇÃO STRICT:`);
+  console.log(`   ✅ Válidas: ${validCount}`);
+  console.log(`   ❌ Rejeitadas: ${rejectedCount}`);
+  console.log(`   🏢 Empresas únicas: ${companiesArray.length}`);
+  console.log(`   📋 Lista: ${companiesArray.map(c => c.name).join(', ')}`);
+  
+  return companiesArray;
+}
+
+// ✅ GERAR ID ÚNICO PARA EMPRESA
+function generateCompanyId(companyName: string): string {
+  return companyName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '') // Remove tudo que não for letra ou número
+    .substring(0, 20) // Limita tamanho
+    || `company_${Date.now()}`; // Fallback se o nome for muito limpo
+}
+
+// ✅ FORMATAR NOME PARA DISPLAY
+function formatDisplayName(companyName: string): string {
+  // Para nomes curtos ou siglas, manter como está
+  if (companyName.length <= 6) {
+    return companyName;
+  }
+  
+  return companyName
+    .split(/[\s&-]+/) // Split por espaços, & e -
+    .map(word => {
+      if (word.length <= 3) return word; // Manter siglas como estão
+      
+      // Primeira letra maiúscula, resto minúsculo
+      return word.charAt(0) + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
 
 export async function POST() {
   try {
-    console.log('🔄 [SYNC] Iniciando sincronização com UPSERT...');
+    console.log('🔄 [SYNC STRICT] Iniciando sincronização com padrão rígido...');
 
     // 1. TESTAR CONEXÃO SUPABASE
     const { supabase } = await import('@/lib/supabase');
@@ -47,10 +155,10 @@ export async function POST() {
       console.log('📋 Empresas no banco:', existingCompanies.slice(0, 10).map(c => c.name).join(', '));
     }
 
-    // 3. BUSCAR DADOS DO ASANA
+    // 3. BUSCAR DADOS DO ASANA COM REFRESH FORÇADO
     const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
     
-    const asanaResponse = await fetch(`${baseUrl}/api/asana/unified`, {
+    const asanaResponse = await fetch(`${baseUrl}/api/asana/unified?refresh=true`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -64,17 +172,53 @@ export async function POST() {
       throw new Error('Dados do Asana não encontrados');
     }
 
-    // 4. EXTRAIR EMPRESAS
-    const { extractCompaniesFromTrackings } = await import('@/lib/auth');
-    const extractedCompanies = extractCompaniesFromTrackings(asanaResult.data);
+    // 4. EXTRAIR EMPRESAS COM LÓGICA ESTRITA
+    const extractedCompanies = extractCompaniesFromTrackingsStrict(asanaResult.data);
     
-    console.log(`📋 Empresas extraídas: ${extractedCompanies.length}`);
-    console.log('🏢 Empresas do Asana:', extractedCompanies.slice(0, 10).map(c => c.name).join(', '));
+    console.log(`📋 Empresas extraídas (STRICT): ${extractedCompanies.length}`);
+    if (extractedCompanies.length === 0) {
+      console.log('⚠️ NENHUMA EMPRESA EXTRAÍDA! Possíveis causas:');
+      console.log('   - Nenhuma tarefa segue o padrão "número + empresa"');
+      console.log('   - Todas as tarefas estão sendo rejeitadas');
+      console.log('   - Verificar títulos das tarefas no Asana');
+    }
 
     // 5. NORMALIZAR FUNÇÃO PARA COMPARAÇÃO
     const normalize = (str: string) => str.trim().toUpperCase().replace(/\s+/g, ' ');
 
-    // 6. SINCRONIZAR COM UPSERT (uma por uma para controle)
+    // 6. IDENTIFICAR EMPRESAS INVÁLIDAS PARA DESATIVAR
+    const validCompanyNames = new Set(extractedCompanies.map(c => normalize(c.name)));
+    const invalidCompanies = existingCompanies?.filter(existing => 
+      !validCompanyNames.has(normalize(existing.name))
+    ) || [];
+
+    console.log(`\n🗑️ Empresas inválidas para desativar: ${invalidCompanies.length}`);
+    if (invalidCompanies.length > 0) {
+      console.log('❌ Serão desativadas:', invalidCompanies.map(c => c.name).join(', '));
+    }
+
+    // 7. DESATIVAR EMPRESAS INVÁLIDAS
+    let deactivatedCount = 0;
+    if (invalidCompanies.length > 0) {
+      const invalidIds = invalidCompanies.map(c => c.id);
+      
+      const { error: deactivateError } = await supabase
+        .from('companies')
+        .update({ 
+          active: false,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', invalidIds);
+
+      if (deactivateError) {
+        console.error('❌ Erro ao desativar empresas inválidas:', deactivateError.message);
+      } else {
+        deactivatedCount = invalidCompanies.length;
+        console.log(`✅ ${deactivatedCount} empresas inválidas desativadas`);
+      }
+    }
+
+    // 8. SINCRONIZAR EMPRESAS VÁLIDAS (uma por uma para controle)
     let createdCount = 0;
     let updatedCount = 0;
     let errorCount = 0;
@@ -105,6 +249,7 @@ export async function POST() {
           if (needsUpdate) {
             console.log(`  🔄 Atualizando empresa existente...`);
             console.log(`     Display: "${existing.display_name}" → "${company.displayName}"`);
+            console.log(`     Active: ${existing.active} → true`);
             
             const { error: updateError } = await supabase
               .from('companies')
@@ -213,11 +358,11 @@ export async function POST() {
       }
     }
 
-    // 7. VERIFICAR RESULTADO FINAL
+    // 9. VERIFICAR RESULTADO FINAL
     console.log('\n🎯 Verificando resultado final...');
     const { data: finalCompanies, error: finalError } = await supabase
       .from('companies')
-      .select('id, name')
+      .select('id, name, active')
       .eq('active', true);
 
     const finalCount = finalCompanies?.length || 0;
@@ -227,15 +372,16 @@ export async function POST() {
       console.warn('⚠️ Erro na verificação final:', finalError.message);
     }
 
-    // 8. RESUMO DETALHADO
+    // 10. RESUMO DETALHADO COM CLEANUP
     const summary = {
       success: true,
-      message: `Sync concluído: ${createdCount} criadas, ${updatedCount} atualizadas, ${skippedCount} já existentes, ${errorCount} erros`,
+      message: `STRICT SYNC concluído: ${createdCount} criadas, ${updatedCount} atualizadas, ${skippedCount} já existentes, ${deactivatedCount} desativadas, ${errorCount} erros`,
       stats: {
         totalProcessed: extractedCompanies.length,
         created: createdCount,
         updated: updatedCount,
         skipped: skippedCount,
+        deactivated: deactivatedCount,
         errors: errorCount,
         beforeSync: existingCount,
         afterSync: finalCount
@@ -245,28 +391,37 @@ export async function POST() {
         existing: existingCount,
         extracted: extractedCompanies.length,
         final: finalCount,
-        netIncrease: finalCount - existingCount
-      }
+        netChange: finalCount - existingCount
+      },
+      cleanup: {
+        invalidCompaniesFound: invalidCompanies.length,
+        companiesDeactivated: deactivatedCount,
+        companiesRemaining: finalCount
+      },
+      strictMode: true,
+      extractionPattern: "^\\d+º(?:\\.\\d+)?\\s+([A-Z][A-Za-z\\s&.'-]+?)(?:\\s*\\(.*)?$"
     };
 
-    console.log('🎉 Sincronização concluída:', summary.message);
+    console.log('🎉 STRICT SYNC concluído:', summary.message);
     console.log('📊 Resumo:', JSON.stringify(summary.stats, null, 2));
+    console.log('🗑️ Cleanup:', JSON.stringify(summary.cleanup, null, 2));
     
     return NextResponse.json(summary);
 
   } catch (error) {
-    console.error('❌ ERRO CRÍTICO:', error);
+    console.error('❌ ERRO CRÍTICO no STRICT SYNC:', error);
     
     return NextResponse.json({
       success: false,
-      error: 'Erro crítico na sincronização',
+      error: 'Erro crítico na sincronização strict',
       details: error instanceof Error ? error.message : String(error),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      strictMode: true
     }, { status: 500 });
   }
 }
 
-// GET para status
+// GET para status com informações sobre padrão strict
 export async function GET() {
   try {
     const { supabase } = await import('@/lib/supabase');
@@ -283,14 +438,18 @@ export async function GET() {
       success: true,
       companiesInDatabase: companies?.length || 0,
       companies: companies || [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      strictMode: true,
+      extractionPattern: "Só aceita formato: número + empresa (ex: '122º WCB', '28º AGRIVALE')",
+      note: "Empresas sem padrão número+empresa são automaticamente desativadas"
     });
 
   } catch (error) {
     return NextResponse.json({
       success: false,
       error: 'Erro ao verificar status',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
+      strictMode: true
     }, { status: 500 });
   }
 }

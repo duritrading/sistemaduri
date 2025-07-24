@@ -356,16 +356,16 @@ export default function DashboardPage() {
                     <button
   onClick={handleLogout}
   disabled={isLoggingOut}
-  className="flex items-center space-x-2 text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+  className="w-full flex items-center space-x-2 text-red-600 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
 >
   {isLoggingOut ? (
     <>
-      <Loader2 size={20} className="animate-spin" />
+      <Loader2 size={16} className="animate-spin" />
       <span>Saindo...</span>
     </>
   ) : (
     <>
-      <LogOut size={20} />
+      <LogOut size={16} />
       <span>Sair</span>
     </>
   )}

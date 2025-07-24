@@ -138,7 +138,7 @@ export function CommentsModal({ isOpen, onClose, taskId, taskTitle }: CommentsMo
                   <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600 font-medium mb-2">Nenhum comentário encontrado</p>
                   <p className="text-gray-500 text-sm">
-                    Ainda não há comentários que começam com "&" nesta operação.
+                    Ainda não há Follow-up dos nossos analistas nesta operação.
                   </p>
                 </div>
               </div>
@@ -180,7 +180,7 @@ export function CommentsModal({ isOpen, onClose, taskId, taskTitle }: CommentsMo
           {/* ✅ Footer */}
           <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
             <p className="text-xs text-gray-500">
-              Exibindo apenas comentários que começam com "&"
+              Exibindo todos os Follow-ups dos nossos analistas
             </p>
             <button
               onClick={onClose}

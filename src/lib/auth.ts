@@ -1,11 +1,5 @@
-// src/lib/auth.ts - ARQUIVO DE COMPATIBILIDADE DURANTE MIGRAÇÃO
-// Mantém funções antigas funcionando enquanto migramos para Supabase
-
-export interface Company {
-  id: string;
-  name: string;
-  displayName: string;
-}
+// ✅ ATUALIZAÇÃO PARA lib/auth.ts - EXTRAÇÃO ESTRITA
+// Substitua as funções existentes por estas versões strict
 
 export interface Company {
   id: string;
@@ -42,11 +36,9 @@ export function clearCurrentCompany(): void {
 }
 
 /**
- * Extrai empresas dos títulos REAIS do Asana seguindo os padrões identificados:
- * - "122º WCB" → "WCB"
- * - "28º AGRIVALE" → "AGRIVALE" 
- * - "17º AMZ (IMPORTAÇÃO)" → "AMZ"
- * - "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)" → "EXPOFRUT"
+ * ✅ EXTRAÇÃO ESTRITA - SÓ ACEITA FORMATO: "número + empresa"
+ * Aceitos: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "13º.1 NATURALLY"
+ * Rejeitados: "DURI TRADING", "EXPOFRUT (IMPORTAÇÃO)", qualquer coisa sem número ordinal
  */
 export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
   if (!trackings || !Array.isArray(trackings)) {
@@ -54,22 +46,29 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
     return [];
   }
 
-  console.log(`🔍 Extraindo empresas de ${trackings.length} trackings...`);
-  console.log('📋 Primeiros 5 títulos para análise:', trackings.slice(0, 5).map(t => t.name || t.title));
+  console.log(`🔍 Extraindo empresas STRICT MODE de ${trackings.length} trackings...`);
   
   const companySet = new Set<string>();
+  let validCount = 0;
+  let rejectedCount = 0;
   
   trackings.forEach((tracking, index) => {
     const title = tracking.name || tracking.title || '';
     if (!title) return;
 
-    const extractedCompany = extractCompanyFromTitle(title);
+    const extractedCompany = extractCompanyFromTitleStrict(title);
     
     if (extractedCompany) {
       companySet.add(extractedCompany);
-      console.log(`✅ [${index + 1}] "${title}" → "${extractedCompany}"`);
+      validCount++;
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ [${index + 1}] "${title}" → "${extractedCompany}"`);
+      }
     } else {
-      console.log(`⚠️ [${index + 1}] "${title}" → NÃO EXTRAÍDO`);
+      rejectedCount++;
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`❌ [${index + 1}] "${title}" → REJEITADO (sem padrão número+empresa)`);
+      }
     }
   });
 
@@ -82,58 +81,46 @@ export function extractCompaniesFromTrackings(trackings: any[]): Company[] {
       displayName: formatDisplayName(name)
     }));
 
-  console.log(`✅ ${companiesArray.length} empresas únicas extraídas:`, 
-    companiesArray.map(c => c.name));
+  console.log(`\n📊 RESULTADO EXTRAÇÃO STRICT:`);
+  console.log(`   ✅ Válidas: ${validCount}`);
+  console.log(`   ❌ Rejeitadas: ${rejectedCount}`);
+  console.log(`   🏢 Empresas únicas: ${companiesArray.length}`);
+  console.log(`   📋 Lista:`, companiesArray.map(c => c.name));
   
   return companiesArray;
 }
 
 /**
- * Extrai empresa de um título individual usando múltiplos padrões
- * Handles: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)"
+ * ✅ EXTRAÇÃO ESTRITA DE EMPRESA DE UM TÍTULO INDIVIDUAL
+ * PADRÃO: "número + empresa" OU "número + empresa + (detalhes)"
  */
-function extractCompanyFromTitle(title: string): string | null {
+function extractCompanyFromTitleStrict(title: string): string | null {
   if (!title || typeof title !== 'string') return null;
   
-  const cleanTitle = title.trim();
+  // ✅ Limpar título (remover timestamps se houver)
+  let cleanTitle = title.trim();
+  cleanTitle = cleanTitle.replace(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+[A-Z]{3,4}\s+/, '').trim();
   
-  // Padrão 1: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "13º.1 NATURALLY"
-  // Captura tudo após "número º" até encontrar "(" ou fim da string
-  const pattern1 = /^\d+º(?:\.\d+)?\s+([^(]+?)(?:\s*\(.*)?$/i;
-  const match1 = cleanTitle.match(pattern1);
+  // ✅ PADRÃO ESTRITO: APENAS "número + empresa" ou "número + empresa + (detalhes)"
+  // ✅ Aceitos: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "13º.1 NATURALLY"
+  // ❌ Rejeitados: "DURI TRADING", "EXPOFRUT (IMPORTAÇÃO)", qualquer coisa sem número
   
-  if (match1 && match1[1]) {
-    const company = match1[1].trim().toUpperCase();
-    // Validar se não é só números ou espaços
-    if (company.length >= 2 && !company.match(/^[\d\s]*$/) && company.match(/[A-Z]/)) {
+  const strictPattern = /^\d+º(?:\.\d+)?\s+([A-Z][A-Za-z\s&.'-]+?)(?:\s*\(.*)?$/i;
+  const match = cleanTitle.match(strictPattern);
+  
+  if (match && match[1]) {
+    let company = match[1].trim().toUpperCase();
+    
+    // ✅ Validações de qualidade
+    if (company.length >= 2 &&           // Mínimo 2 caracteres
+        company.length <= 50 &&          // Máximo 50 caracteres  
+        company.match(/[A-Z]/) &&        // Deve ter pelo menos uma letra
+        !company.match(/^[\d\s]*$/)) {   // Não pode ser só números/espaços
+      
       return company;
     }
   }
-
-  // Padrão 2: "EXPOFRUT (IMPORTAÇÃO DIRETA 01.2025)" - empresa no início sem número
-  // Captura empresa no início até encontrar "(" ou fim da string
-  const pattern2 = /^([A-Z][^(]*?)(?:\s*\(.*)?$/i;
-  const match2 = cleanTitle.match(pattern2);
   
-  if (match2 && match2[1] && !match2[1].match(/^\d/)) {
-    const company = match2[1].trim().toUpperCase();
-    // Validar tamanho e que contém letras
-    if (company.length >= 2 && company.length <= 50 && company.match(/[A-Z]/)) {
-      return company;
-    }
-  }
-
-  // Padrão 3: Fallback - qualquer sequência de letras maiúsculas
-  const pattern3 = /([A-Z]{2,}(?:\s+[A-Z]+)*)/;
-  const match3 = cleanTitle.match(pattern3);
-  
-  if (match3 && match3[1]) {
-    const company = match3[1].trim().toUpperCase();
-    if (company.length >= 2 && company.length <= 30) {
-      return company;
-    }
-  }
-
   return null;
 }
 
@@ -169,15 +156,15 @@ function formatDisplayName(companyName: string): string {
 }
 
 /**
- * Extrai empresa de um tracking individual
+ * Extrai empresa de um tracking individual (compatibilidade)
  */
 function extractCompanyFromTracking(tracking: any): string | null {
   const title = tracking.name || tracking.title || '';
-  return extractCompanyFromTitle(title);
+  return extractCompanyFromTitleStrict(title);
 }
 
 /**
- * Obtém estatísticas das empresas nos trackings
+ * Obtém estatísticas das empresas nos trackings (só empresas válidas)
  */
 export function getCompanyStats(trackings: any[]): Record<string, number> {
   const stats: Record<string, number> = {};
@@ -190,4 +177,63 @@ export function getCompanyStats(trackings: any[]): Record<string, number> {
   });
   
   return stats;
+}
+
+/**
+ * ✅ FUNÇÃO DE TESTE - Verifica se um título segue o padrão strict
+ */
+export function testStrictPattern(title: string): { 
+  valid: boolean; 
+  company: string | null; 
+  reason: string;
+} {
+  const company = extractCompanyFromTitleStrict(title);
+  
+  if (company) {
+    return {
+      valid: true,
+      company: company,
+      reason: `Segue padrão "número + empresa": "${company}"`
+    };
+  } else {
+    return {
+      valid: false,
+      company: null,
+      reason: 'Não segue padrão "número + empresa" (ex: "122º WCB")'
+    };
+  }
+}
+
+/**
+ * ✅ FUNÇÃO HELPER - Lista todas as empresas válidas de uma lista de títulos
+ */
+export function previewExtractionResults(titles: string[]): {
+  valid: Array<{ title: string; company: string }>;
+  invalid: Array<{ title: string; reason: string }>;
+  summary: { validCount: number; invalidCount: number; uniqueCompanies: number };
+} {
+  const valid: Array<{ title: string; company: string }> = [];
+  const invalid: Array<{ title: string; reason: string }> = [];
+  const companies = new Set<string>();
+
+  titles.forEach(title => {
+    const result = testStrictPattern(title);
+    
+    if (result.valid && result.company) {
+      valid.push({ title, company: result.company });
+      companies.add(result.company);
+    } else {
+      invalid.push({ title, reason: result.reason });
+    }
+  });
+
+  return {
+    valid,
+    invalid,
+    summary: {
+      validCount: valid.length,
+      invalidCount: invalid.length,
+      uniqueCompanies: companies.size
+    }
+  };
 }
