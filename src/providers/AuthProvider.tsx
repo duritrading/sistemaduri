@@ -24,9 +24,10 @@ const checkDatabaseSetup = async (): Promise<boolean> => {
     
     // Tentar uma query simples para verificar se as tabelas existem
     const { data, error } = await supabase
-      .from('companies')
-      .select('id')
-      .limit(1);
+  .from('companies')
+  .select('id, name')
+  .eq('active', true)
+  .limit(1);
     
     if (error) {
       console.error('❌ Tabelas não existem:', error.message);

@@ -1,339 +1,296 @@
-// src/app/api/sync-companies/route.ts - VERSÃO FINAL CORRIGIDA
+// src/app/api/sync-companies/route.ts - VERSÃO COM UPSERT PARA EVITAR DUPLICATAS
 import { NextResponse } from 'next/server';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutos de timeout para a Vercel
-
-// Interfaces para tipagem
-interface AsanaCompany {
-  id: string;
-  name: string;
-  displayName: string;
-  slug: string;
-}
-
-interface SyncResult {
-  success: boolean;
-  stats: {
-    totalTasks: number;
-    totalProcessed: number;
-    created: number;
-    updated: number;
-    deactivated: number;
-    errors: number;
-    extractionRate: number;
-  };
-  message: string;
-  details?: any[];
-  errorDetails?: string[];
-  skippedTasks?: string[];
-  diagnostics?: any;
-  error?: string;
-}
-
-/**
- * Extrai o nome da empresa de um título de tarefa do Asana de forma robusta.
- * @param title O título da tarefa do Asana.
- * @returns O nome da empresa formatado ou null se não for encontrado.
- */
-function extractCompanyNameRobust(title: string): string | null {
-  if (!title || typeof title !== 'string') return null;
-  
-  let cleanTitle = title.trim();
-
-  // Remove prefixos comuns de data/hora para limpar o título
-  cleanTitle = cleanTitle.replace(/^\d{2}\/\d{2}\/\d{4},\s+\d{2}:\d{2}:\d{2}\s+[A-Z]{3,4}\s+/, '').trim();
-
-  // Padrões de Regex, do mais específico para o mais genérico
-  const patterns = [
-    // Padrão 1: "123º NOME DA EMPRESA (...)" ou "123.1º NOME & CIA"
-    /^\d+(?:\.\d+)?[°º]?\s*[-–]?\s*([A-Z][A-Za-z\s&.'-]+?)(?:\s*\(|\s*[-–]|\s*$)/,
-    // Padrão 2: "NOME DA EMPRESA (...)" (sem número no início)
-    /^([A-Z][A-Za-z\s&.'-]{2,})(?:\s*\(|\s*[-–]|\s*$)/
-  ];
-
-  for (const pattern of patterns) {
-    const match = cleanTitle.match(pattern);
-    if (match && match[1]) {
-      const company = match[1].trim();
-      // Validação mínima para evitar extrações incorretas
-      if (company.length > 1 && company.length < 50) {
-        return formatCompanyName(company);
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
- * Formata o nome da empresa para um padrão consistente (Title Case).
- * @param name O nome bruto da empresa.
- * @returns O nome formatado.
- */
-function formatCompanyName(name: string): string {
-  return name
-    .trim()
-    .replace(/\s+/g, ' ')
-    .split(' ')
-    .map(word => {
-      // Mantém siglas em maiúsculo
-      if (word.length <= 4 && /^[A-Z&]+$/.test(word)) {
-        return word.toUpperCase();
-      }
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
-}
-
-/**
- * Gera um slug único para a empresa, evitando colisões.
- * @param name O nome da empresa.
- * @param existingSlugs Um Set com os slugs já utilizados.
- * @returns Um slug único.
- */
-function generateUniqueSlug(name: string, existingSlugs: Set<string>): string {
-  let baseSlug = name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  
-  if (!baseSlug) baseSlug = 'empresa';
-  
-  if (!existingSlugs.has(baseSlug)) {
-    existingSlugs.add(baseSlug);
-    return baseSlug;
-  }
-  
-  let counter = 1;
-  let uniqueSlug = `${baseSlug}-${counter}`;
-  
-  while (existingSlugs.has(uniqueSlug)) {
-    counter++;
-    uniqueSlug = `${baseSlug}-${counter}`;
-  }
-  
-  existingSlugs.add(uniqueSlug);
-  return uniqueSlug;
-}
-
-/**
- * Busca todas as tarefas do projeto "Operacional" no Asana e extrai os nomes das empresas.
- * @returns Um objeto com a lista de empresas, diagnósticos e detalhes de erros.
- */
-async function fetchAllAsanaCompanies(): Promise<{
-  companies: AsanaCompany[];
-  diagnostics: any;
-  errorDetails: string[];
-  skippedTasks: string[];
-  totalTasks: number;
-}> {
-  const token = process.env.ASANA_ACCESS_TOKEN;
-  if (!token || token.trim() === '' || token.includes('your_')) {
-    throw new Error('ASANA_ACCESS_TOKEN não configurado no ambiente.');
-  }
-
-  // Busca o Workspace
-  const workspacesResponse = await fetch('[https://app.asana.com/api/1.0/workspaces](https://app.asana.com/api/1.0/workspaces)', {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (!workspacesResponse.ok) throw new Error(`Erro ao buscar Workspaces: ${workspacesResponse.status}`);
-  const workspacesData = await workspacesResponse.json();
-  const workspace = workspacesData.data?.[0];
-  if (!workspace) throw new Error('Nenhum workspace encontrado na conta do Asana.');
-
-  // Busca o projeto "Operacional"
-  const projectsResponse = await fetch(
-    `https://app.asana.com/api/1.0/projects?workspace=${workspace.gid}&limit=100`,
-    { headers: { 'Authorization': `Bearer ${token}` } }
-  );
-  if (!projectsResponse.ok) throw new Error(`Erro ao buscar Projetos: ${projectsResponse.status}`);
-  const projectsData = await projectsResponse.json();
-  const operationalProject = projectsData.data?.find((p: any) => 
-    p.name && p.name.toLowerCase().includes('operacional')
-  );
-  if (!operationalProject) throw new Error('Projeto "Operacional" não encontrado no workspace.');
-
-  // Paginação para buscar todas as tarefas
-  const allTasks = [];
-  let offset = undefined;
-  let pageCount = 0;
-  const maxPages = 200; // Prevenção de loop infinito
-  
-  do {
-    pageCount++;
-    const endpoint = `[https://app.asana.com/api/1.0/tasks?project=$](https://app.asana.com/api/1.0/tasks?project=$){operationalProject.gid}&opt_fields=name,created_at&limit=100${
-      offset ? `&offset=${offset}` : ''
-    }`;
-    const tasksResponse = await fetch(endpoint, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (!tasksResponse.ok) throw new Error(`Erro ao buscar Tasks: ${tasksResponse.status}`);
-    const tasksData = await tasksResponse.json();
-    const tasks = tasksData.data || [];
-    allTasks.push(...tasks);
-    offset = tasksData.next_page?.offset;
-    if (pageCount >= maxPages) break;
-  } while (offset);
-
-  if (allTasks.length === 0) throw new Error('Nenhuma tarefa encontrada no projeto "Operacional".');
-
-  const companySet = new Set<string>();
-  const errorDetails: string[] = [];
-  const skippedTasks: string[] = [];
-  const existingSlugs = new Set<string>();
-  let successfulExtractions = 0;
-
-  allTasks.forEach((task: any) => {
-    if (!task.name) {
-      skippedTasks.push(`Task sem nome (ID: ${task.gid})`);
-      return;
-    }
-    const extractedCompany = extractCompanyNameRobust(task.name);
-    if (extractedCompany) {
-      companySet.add(extractedCompany);
-      successfulExtractions++;
-    } else {
-      errorDetails.push(`"${task.name}"`);
-    }
-  });
-
-  const companies: AsanaCompany[] = Array.from(companySet)
-    .map(name => ({
-      id: '', // ID será gerado pelo Supabase
-      name, 
-      displayName: name, 
-      slug: generateUniqueSlug(name, existingSlugs)
-    }))
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-  const diagnostics = {
-    totalTasks: allTasks.length,
-    successfulExtractions,
-    uniqueCompanies: companies.length,
-    extractionRate: allTasks.length > 0 ? ((successfulExtractions / allTasks.length) * 100).toFixed(1) : '0.0',
-    errorRate: allTasks.length > 0 ? ((errorDetails.length / allTasks.length) * 100).toFixed(1) : '0.0'
-  };
-
-  return { companies, diagnostics, errorDetails, skippedTasks, totalTasks: allTasks.length };
-}
-
-/**
- * Handler POST: Executa a sincronização completa das empresas.
- * Desativa todas as empresas existentes e depois cria/reativa com base nos dados do Asana.
- */
 export async function POST() {
-  const startTime = Date.now();
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceKey) throw new Error('Variáveis de ambiente do Supabase não configuradas.');
+    console.log('🔄 [SYNC] Iniciando sincronização com UPSERT...');
 
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
+    // 1. TESTAR CONEXÃO SUPABASE
+    const { supabase } = await import('@/lib/supabase');
+    
+    const { data: testConnection, error: connectionError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .limit(1);
+    
+    if (connectionError) {
+      console.error('❌ Erro conexão:', connectionError);
+      return NextResponse.json({
+        success: false,
+        error: 'Erro de conexão com Supabase',
+        details: connectionError.message
+      }, { status: 500 });
+    }
+    
+    console.log('✅ Conexão Supabase OK');
+
+    // 2. BUSCAR EMPRESAS EXISTENTES PARA COMPARAÇÃO
+    const { data: existingCompanies, error: fetchError } = await supabase
+      .from('companies')
+      .select('id, name, display_name, slug, active')
+      .eq('active', true);
+    
+    if (fetchError) {
+      console.error('❌ Erro ao buscar empresas:', fetchError);
+      return NextResponse.json({
+        success: false,
+        error: 'Erro ao buscar empresas existentes',
+        details: fetchError.message
+      }, { status: 500 });
+    }
+    
+    const existingCount = existingCompanies?.length || 0;
+    console.log(`📋 Empresas existentes no banco: ${existingCount}`);
+    
+    // Log das empresas existentes para debug
+    if (existingCompanies && existingCompanies.length > 0) {
+      console.log('📋 Empresas no banco:', existingCompanies.slice(0, 10).map(c => c.name).join(', '));
+    }
+
+    // 3. BUSCAR DADOS DO ASANA
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    
+    const asanaResponse = await fetch(`${baseUrl}/api/asana/unified`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
     });
 
-    const { companies, diagnostics, errorDetails, skippedTasks, totalTasks } = await fetchAllAsanaCompanies();
+    if (!asanaResponse.ok) {
+      throw new Error(`Erro API Asana: ${asanaResponse.status}`);
+    }
+
+    const asanaResult = await asanaResponse.json();
+    if (!asanaResult.success || !asanaResult.data) {
+      throw new Error('Dados do Asana não encontrados');
+    }
+
+    // 4. EXTRAIR EMPRESAS
+    const { extractCompaniesFromTrackings } = await import('@/lib/auth');
+    const extractedCompanies = extractCompaniesFromTrackings(asanaResult.data);
     
-    // Desativa todas as empresas existentes para começar do zero
-    const { count: deactivatedCount, error: deactivateError } = await supabase
-      .from('companies')
-      .update({ active: false, updated_at: new Date().toISOString() })
-      .eq('active', true);
-    if (deactivateError) throw new Error(`Erro ao desativar empresas existentes: ${deactivateError.message}`);
+    console.log(`📋 Empresas extraídas: ${extractedCompanies.length}`);
+    console.log('🏢 Empresas do Asana:', extractedCompanies.slice(0, 10).map(c => c.name).join(', '));
 
-    let createdCount = 0, reactivatedCount = 0, errorCount = 0;
+    // 5. NORMALIZAR FUNÇÃO PARA COMPARAÇÃO
+    const normalize = (str: string) => str.trim().toUpperCase().replace(/\s+/g, ' ');
 
-    for (const company of companies) {
+    // 6. SINCRONIZAR COM UPSERT (uma por uma para controle)
+    let createdCount = 0;
+    let updatedCount = 0;
+    let errorCount = 0;
+    let skippedCount = 0;
+    const results = [];
+
+    for (let i = 0; i < extractedCompanies.length; i++) {
+      const company = extractedCompanies[i];
+      console.log(`\n[${i + 1}/${extractedCompanies.length}] Processando: "${company.name}"`);
+      
       try {
-        const { data: existing } = await supabase.from('companies').select('id').eq('name', company.name).maybeSingle();
+        // Verificar se já existe com nome normalizado
+        const normalizedAsanaName = normalize(company.name);
+        const existing = existingCompanies?.find(e => 
+          normalize(e.name) === normalizedAsanaName ||
+          normalize(e.display_name || '') === normalizedAsanaName ||
+          e.slug === (company.id || company.name.toLowerCase().replace(/[^a-z0-9]/g, '-'))
+        );
+
         if (existing) {
-          // Reativa e atualiza empresa existente
-          await supabase.from('companies').update({ display_name: company.displayName, slug: company.slug, active: true, updated_at: new Date().toISOString() }).eq('id', existing.id);
-          reactivatedCount++;
+          console.log(`  ✅ Empresa já existe: "${existing.name}" (ID: ${existing.id})`);
+          
+          // Verificar se precisa atualizar algum campo
+          const needsUpdate = 
+            existing.display_name !== company.displayName ||
+            !existing.active;
+
+          if (needsUpdate) {
+            console.log(`  🔄 Atualizando empresa existente...`);
+            console.log(`     Display: "${existing.display_name}" → "${company.displayName}"`);
+            
+            const { error: updateError } = await supabase
+              .from('companies')
+              .update({ 
+                display_name: company.displayName,
+                active: true,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id);
+
+            if (updateError) {
+              console.error(`  ❌ Erro ao atualizar:`, updateError.message);
+              errorCount++;
+              results.push({ company: company.name, action: 'error', error: updateError.message });
+            } else {
+              console.log(`  ✅ Atualizada com sucesso`);
+              updatedCount++;
+              results.push({ company: company.name, action: 'updated', id: existing.id });
+            }
+          } else {
+            console.log(`  ℹ️ Não precisa de atualização`);
+            skippedCount++;
+            results.push({ company: company.name, action: 'skipped', id: existing.id });
+          }
         } else {
-          // Cria nova empresa
-          await supabase.from('companies').insert({ name: company.name, display_name: company.displayName, slug: company.slug, active: true });
-          createdCount++;
+          // Criar nova empresa usando UPSERT
+          console.log(`  ➕ Criando nova empresa...`);
+          
+          const slug = company.id || company.name.toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .replace(/\s+/g, '-')
+            .substring(0, 50);
+          
+          const newCompanyData = {
+            name: company.name.trim(),
+            display_name: company.displayName,
+            slug: slug,
+            active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          console.log(`     Nome: "${newCompanyData.name}"`);
+          console.log(`     Display: "${newCompanyData.display_name}"`);
+          console.log(`     Slug: "${newCompanyData.slug}"`);
+
+          // USAR UPSERT PARA EVITAR CONFLITOS
+          const { data: upsertResult, error: upsertError } = await supabase
+            .from('companies')
+            .upsert(newCompanyData, { 
+              onConflict: 'name',
+              ignoreDuplicates: false 
+            })
+            .select('id, name, display_name')
+            .single();
+
+          if (upsertError) {
+            console.error(`  ❌ Erro UPSERT:`, upsertError.message);
+            console.error(`  📋 Dados que causaram erro:`, newCompanyData);
+            
+            // Tentar diagnóstico do erro
+            if (upsertError.message.includes('duplicate key')) {
+              console.log(`  🔍 Tentando buscar empresa conflitante...`);
+              
+              const { data: conflicting } = await supabase
+                .from('companies')
+                .select('id, name, display_name, slug')
+                .eq('name', company.name)
+                .single();
+              
+              if (conflicting) {
+                console.log(`  📋 Empresa conflitante encontrada:`, conflicting);
+                skippedCount++;
+                results.push({ 
+                  company: company.name, 
+                  action: 'conflict_resolved', 
+                  existing: conflicting 
+                });
+              } else {
+                errorCount++;
+                results.push({ company: company.name, action: 'error', error: upsertError.message });
+              }
+            } else {
+              errorCount++;
+              results.push({ company: company.name, action: 'error', error: upsertError.message });
+            }
+          } else {
+            console.log(`  ✅ UPSERT bem-sucedido: ID=${upsertResult?.id}`);
+            createdCount++;
+            results.push({ 
+              company: company.name, 
+              action: 'created', 
+              id: upsertResult?.id,
+              data: upsertResult
+            });
+          }
         }
-      } catch (e) { 
-        errorCount++; 
-        console.error(`Erro ao processar empresa ${company.name}:`, e);
+      } catch (companyError) {
+        console.error(`  ❌ Erro geral:`, companyError);
+        errorCount++;
+        results.push({ 
+          company: company.name, 
+          action: 'error', 
+          error: companyError instanceof Error ? companyError.message : String(companyError)
+        });
       }
     }
-    
-    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    const finalResult: SyncResult = {
+
+    // 7. VERIFICAR RESULTADO FINAL
+    console.log('\n🎯 Verificando resultado final...');
+    const { data: finalCompanies, error: finalError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .eq('active', true);
+
+    const finalCount = finalCompanies?.length || 0;
+    console.log(`📊 Total no banco após sync: ${finalCount} (antes: ${existingCount})`);
+
+    if (finalError) {
+      console.warn('⚠️ Erro na verificação final:', finalError.message);
+    }
+
+    // 8. RESUMO DETALHADO
+    const summary = {
       success: true,
-      message: `Sincronização completa em ${duration}s: ${createdCount} criadas, ${reactivatedCount} reativadas, ${deactivatedCount || 0} desativadas, ${errorCount} erros.`,
+      message: `Sync concluído: ${createdCount} criadas, ${updatedCount} atualizadas, ${skippedCount} já existentes, ${errorCount} erros`,
       stats: {
-        totalTasks,
-        totalProcessed: companies.length,
+        totalProcessed: extractedCompanies.length,
         created: createdCount,
-        updated: reactivatedCount,
-        deactivated: deactivatedCount || 0,
-        errors: errorDetails.length,
-        extractionRate: parseFloat(diagnostics.extractionRate)
+        updated: updatedCount,
+        skipped: skippedCount,
+        errors: errorCount,
+        beforeSync: existingCount,
+        afterSync: finalCount
       },
-      errorDetails: errorDetails,
+      details: results.slice(0, 20),
+      companies: {
+        existing: existingCount,
+        extracted: extractedCompanies.length,
+        final: finalCount,
+        netIncrease: finalCount - existingCount
+      }
     };
-    return NextResponse.json(finalResult);
+
+    console.log('🎉 Sincronização concluída:', summary.message);
+    console.log('📊 Resumo:', JSON.stringify(summary.stats, null, 2));
+    
+    return NextResponse.json(summary);
+
   } catch (error) {
+    console.error('❌ ERRO CRÍTICO:', error);
+    
     return NextResponse.json({
-      success: false, error: error instanceof Error ? error.message : 'Erro desconhecido durante a sincronização'
+      success: false,
+      error: 'Erro crítico na sincronização',
+      details: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString()
     }, { status: 500 });
   }
 }
 
-/**
- * Handler GET: Fornece o status atual da sincronização e a contagem de empresas.
- * Corrige o erro 405 (Method Not Allowed).
- */
+// GET para status
 export async function GET() {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceKey) {
-      throw new Error('Variáveis de ambiente do Supabase não configuradas.');
-    }
-
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
-
-    // Conta o número de empresas ativas diretamente do banco de dados
-    const { count, error } = await supabase
+    const { supabase } = await import('@/lib/supabase');
+    
+    const { data: companies, error } = await supabase
       .from('companies')
-      .select('*', { count: 'exact', head: true })
-      .eq('active', true);
+      .select('id, name, display_name, active, created_at')
+      .eq('active', true)
+      .order('name');
 
     if (error) throw error;
 
-    // Simula a contagem de empresas no "Asana" para a UI (pode ser melhorado depois)
-    const asanaCompanyCount = count !== null ? Math.max(count, 35) : 35;
-
     return NextResponse.json({
       success: true,
-      companiesInDatabase: count || 0,
-      companiesInAsana: `${asanaCompanyCount}+`, // Simulação para UI
-      needsSync: (count || 0) < 30, // Lógica simples para indicar necessidade de sync
-      asanaConfigured: !!process.env.ASANA_ACCESS_TOKEN,
+      companiesInDatabase: companies?.length || 0,
+      companies: companies || [],
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Erro desconhecido ao buscar status',
-      companiesInDatabase: 0,
-      asanaConfigured: false,
-      needsSync: true
+      error: 'Erro ao verificar status',
+      details: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }
 }
