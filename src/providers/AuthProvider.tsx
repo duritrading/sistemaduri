@@ -1,9 +1,10 @@
-// src/providers/AuthProvider.tsx - SEM EMPRESA PADRÃO + VERIFICAÇÃO RIGOROSA
+// src/providers/AuthProvider.tsx - SEM LOOPS INFINITOS + MODAL BONITO
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext, type User, type UserProfile, type Company } from '@/contexts/AuthContext';
+import { AccessDeniedModal } from '@/components/AccessDeniedModal';
 
 // ✅ VERIFICAR CONFIGURAÇÃO APENAS NO CLIENT
 const checkSupabaseConfig = (): boolean => {
@@ -22,7 +23,6 @@ const checkDatabaseSetup = async (): Promise<boolean> => {
   try {
     const { supabase } = await import('@/lib/supabase');
     
-    // Tentar uma query simples para verificar se as tabelas existem
     const { data, error } = await supabase
   .from('companies')
   .select('id, name')
@@ -49,7 +49,6 @@ const getValidUserProfile = async (user: User): Promise<{ profile: UserProfile |
     
     console.log('🔍 Buscando profile válido para:', user.email);
     
-    // ✅ BUSCAR PROFILE EXISTENTE COM VERIFICAÇÃO DE STATUS ATIVO
     const { data: existingProfile, error: fetchError } = await supabase
       .from('user_profiles')
       .select(`
@@ -63,23 +62,14 @@ const getValidUserProfile = async (user: User): Promise<{ profile: UserProfile |
         )
       `)
       .eq('id', user.id)
-      .eq('active', true)  // ✅ SÓ BUSCAR USUÁRIOS ATIVOS
+      .eq('active', true)
       .single();
 
     if (fetchError || !existingProfile) {
       console.log('❌ Profile não encontrado ou usuário inativo:', user.email);
-      
-      if (fetchError?.code === 'PGRST116') {
-        console.log('🚨 Usuário não existe no sistema');
-      } else {
-        console.log('🚨 Usuário existe mas está inativo');
-      }
-      
-      // ✅ NÃO CRIAR FALLBACKS - REJEITAR COMPLETAMENTE
       return { profile: null, company: null };
     }
 
-    // ✅ VERIFICAR SE A EMPRESA ESTÁ ATIVA
     const userCompany = (existingProfile as any)?.companies as Company;
     if (!userCompany || !userCompany.active) {
       console.log('❌ Empresa do usuário não encontrada ou inativa:', user.email);
@@ -95,13 +85,12 @@ const getValidUserProfile = async (user: User): Promise<{ profile: UserProfile |
 
   } catch (error) {
     console.error('❌ Erro ao buscar profile válido:', error);
-    // ✅ EM CASO DE ERRO, NÃO CRIAR FALLBACKS
     return { profile: null, company: null };
   }
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // ✅ ESTADOS INICIAIS CONSISTENTES
+  // ✅ ESTADOS PRINCIPAIS
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
@@ -111,6 +100,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isClient, setIsClient] = useState(false);
   const [supabaseConfigured, setSupabaseConfigured] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
+  
+  // ✅ ESTADOS PARA CONTROLAR LOOPS E MODAL
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [shouldStopChecking, setShouldStopChecking] = useState(false);
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState({
+    title: '',
+    message: ''
+  });
   
   const router = useRouter();
 
@@ -134,10 +132,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initClient();
   }, []);
 
-  // ✅ SIGN OUT CORRIGIDO
+  // ✅ SIGN OUT SEM LOOP - LIMPA TUDO
   const signOut = async (): Promise<void> => {
+    if (isLoggingOut) {
+      console.log('⚠️ Logout já em andamento - ignorando chamada duplicada');
+      return;
+    }
+
     console.log('🔄 Iniciando logout...');
-    setLoading(true);
+    setIsLoggingOut(true);
+    setShouldStopChecking(true); // ✅ PARAR TODAS AS VERIFICAÇÕES
     
     // Limpar estado local primeiro
     setUser(null);
@@ -145,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCompany(null);
     setSession(null);
     setError(null);
+    setShowAccessDeniedModal(false);
     
     try {
       if (isClient && supabaseConfigured) {
@@ -167,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     setLoading(false);
     
+    // ✅ REDIRECIONAR E RESETAR ESTADOS
     try {
       router.push('/login');
     } catch (routerError) {
@@ -175,12 +181,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     
+    // ✅ RESETAR ESTADOS DE CONTROLE APÓS DELAY
+    setTimeout(() => {
+      setIsLoggingOut(false);
+      setShouldStopChecking(false);
+    }, 2000);
+    
     console.log('✅ Logout concluído');
   };
 
-  // ✅ VERIFICAR STATUS ATIVO COM LOGOUT IMEDIATO
+  // ✅ MOSTRAR MODAL DE ACESSO NEGADO
+  const showAccessDenied = (reason: string) => {
+    const messages = {
+      'USER_DELETED': {
+        title: 'Conta Removida',
+        message: 'Sua conta foi removida do sistema. Entre em contato com o administrador se acredita que isso é um erro.'
+      },
+      'USER_INACTIVE': {
+        title: 'Conta Desativada', 
+        message: 'Sua conta foi desativada. Entre em contato com o administrador para reativar seu acesso.'
+      },
+      'INVALID_USER': {
+        title: 'Acesso Negado',
+        message: 'Sua conta não tem acesso ao sistema ou foi desativada. Verifique suas credenciais ou entre em contato com o administrador.'
+      }
+    };
+    
+    const messageData = messages[reason as keyof typeof messages] || messages.INVALID_USER;
+    
+    setAccessDeniedMessage(messageData);
+    setShowAccessDeniedModal(true);
+  };
+
+  // ✅ VERIFICAR STATUS ATIVO - SEM LOOPS
   const checkUserActiveStatus = useCallback(async (currentUser: User) => {
-    if (!isClient || !supabaseConfigured || !currentUser) return;
+    // ✅ NÃO VERIFICAR SE JÁ ESTÁ FAZENDO LOGOUT OU DEVE PARAR
+    if (!isClient || !supabaseConfigured || !currentUser || isLoggingOut || shouldStopChecking) {
+      return;
+    }
 
     try {
       console.log('🔍 Verificando status ativo para:', currentUser.email);
@@ -201,19 +239,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!result.success && result.shouldLogout) {
         console.log('🚨 USUÁRIO DEVE SER DESLOGADO:', result.reason);
         
-        const messages = {
-          'USER_DELETED': 'Sua conta foi removida do sistema.',
-          'USER_INACTIVE': 'Sua conta foi desativada. Entre em contato com o administrador.'
-        };
-        
-        const message = messages[result.reason as keyof typeof messages] || 'Acesso revogado.';
-        
-        if (typeof window !== 'undefined') {
-          alert(`🚨 ${message}\n\nVocê será redirecionado para a tela de login.`);
-        }
-        
-        // ✅ LOGOUT IMEDIATO
-        await signOut();
+        // ✅ MOSTRAR MODAL BONITO AO INVÉS DE ALERT
+        showAccessDenied(result.reason);
         return;
       }
 
@@ -224,28 +251,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.warn('⚠️ Erro na verificação de status ativo:', error);
     }
-  }, [isClient, supabaseConfigured, signOut]);
+  }, [isClient, supabaseConfigured, isLoggingOut, shouldStopChecking]);
 
   // ✅ LOAD USER DATA COM VERIFICAÇÃO RIGOROSA - SEM FALLBACKS
   const loadUserData = useCallback(async (currentUser: User) => {
-    if (!isClient || !supabaseConfigured) return;
+    if (!isClient || !supabaseConfigured || isLoggingOut || shouldStopChecking) return;
     
     try {
       console.log('🔄 Carregando dados do usuário:', currentUser.email);
       setError(null);
       
-      // ✅ BUSCAR APENAS USUÁRIOS VÁLIDOS E ATIVOS
       const { profile: userProfile, company: userCompany } = await getValidUserProfile(currentUser);
       
       if (!userProfile || !userCompany) {
-        console.log('🚨 USUÁRIO INVÁLIDO - FORÇANDO LOGOUT');
-        
-        // ✅ MOSTRAR MENSAGEM E FORÇAR LOGOUT IMEDIATO
-        if (typeof window !== 'undefined') {
-          alert('🚨 Sua conta não tem acesso ao sistema ou foi desativada.\n\nVocê será redirecionado para a tela de login.');
-        }
-        
-        await signOut();
+        console.log('🚨 USUÁRIO INVÁLIDO - MOSTRANDO MODAL');
+        showAccessDenied('INVALID_USER');
         return;
       }
       
@@ -259,12 +279,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
     } catch (error) {
       console.error('❌ Erro ao carregar dados do usuário:', error);
-      
-      // ✅ EM CASO DE ERRO, FORÇAR LOGOUT
-      console.log('🚨 ERRO NO CARREGAMENTO - FORÇANDO LOGOUT');
-      await signOut();
+      showAccessDenied('INVALID_USER');
     }
-  }, [isClient, supabaseConfigured, signOut]);
+  }, [isClient, supabaseConfigured, isLoggingOut, shouldStopChecking]);
 
   // ✅ INITIALIZE AUTH
   useEffect(() => {
@@ -305,6 +322,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setCompany(null);
               setSession(null);
               setError(null);
+              setShowAccessDeniedModal(false);
+              setShouldStopChecking(false);
             }
           }
         );
@@ -321,35 +340,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, [isClient, supabaseConfigured, loadUserData]);
 
-  // ✅ VERIFICAÇÃO PERIÓDICA A CADA 2 MINUTOS
+  // ✅ VERIFICAÇÃO PERIÓDICA - COM PROTEÇÃO CONTRA LOOPS
   useEffect(() => {
-    if (!user || !isClient || !supabaseConfigured) return;
+    if (!user || !isClient || !supabaseConfigured || isLoggingOut || shouldStopChecking) return;
 
     // Verificar imediatamente
     checkUserActiveStatus(user);
 
     // Verificar a cada 2 minutos
     const interval = setInterval(() => {
-      checkUserActiveStatus(user);
+      if (!isLoggingOut && !shouldStopChecking) {
+        checkUserActiveStatus(user);
+      }
     }, 120000);
 
     return () => clearInterval(interval);
-  }, [user, checkUserActiveStatus]);
+  }, [user, checkUserActiveStatus, isLoggingOut, shouldStopChecking]);
 
-  // ✅ VERIFICAR EM FOCUS EVENTS
+  // ✅ VERIFICAR EM FOCUS EVENTS - COM PROTEÇÃO
   useEffect(() => {
-    if (!user || !isClient) return;
+    if (!user || !isClient || isLoggingOut || shouldStopChecking) return;
 
     const handleFocus = () => {
-      console.log('🔄 Foco retornado - verificando status do usuário');
-      checkUserActiveStatus(user);
+      if (!isLoggingOut && !shouldStopChecking) {
+        console.log('🔄 Foco retornado - verificando status do usuário');
+        checkUserActiveStatus(user);
+      }
     };
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [user, checkUserActiveStatus]);
+  }, [user, checkUserActiveStatus, isLoggingOut, shouldStopChecking]);
 
-  // ✅ SIGN IN COM VERIFICAÇÃO IMEDIATA
+  // ✅ SIGN IN
   const signIn = async (email: string, password: string): Promise<void> => {
     if (!isClient || !supabaseConfigured) {
       throw new Error('Sistema não configurado.');
@@ -357,6 +380,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setLoading(true);
     setError(null);
+    setShouldStopChecking(false); // ✅ PERMITIR VERIFICAÇÕES NOVAMENTE
     
     try {
       console.log('🔄 Tentando login para:', email);
@@ -389,7 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ✅ REFRESH PROFILE
   const refreshProfile = async (): Promise<void> => {
-    if (user && isClient) {
+    if (user && isClient && !isLoggingOut && !shouldStopChecking) {
       await loadUserData(user);
     }
   };
@@ -411,6 +435,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }}
       >
         {children}
+        
+        {/* ✅ MODAL BONITO PARA ACESSO NEGADO */}
+        <AccessDeniedModal
+          isOpen={showAccessDeniedModal}
+          title={accessDeniedMessage.title}
+          message={accessDeniedMessage.message}
+          onConfirm={signOut}
+          autoCloseSeconds={5}
+        />
       </AuthContext.Provider>
     </div>
   );

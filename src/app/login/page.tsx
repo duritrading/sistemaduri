@@ -4,6 +4,7 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/components/Toast'; // ✅ ADICIONADO
 import { Eye, EyeOff, Mail, Lock, LogIn, Loader2, AlertCircle, Settings, Database, Copy, Anchor, Compass, Ship, Globe } from 'lucide-react';
 
 // ✅ Loading component que mantém o tema marítimo
@@ -35,6 +36,7 @@ function LoginContent() {
   const [initComplete, setInitComplete] = useState(false);
 
   const { signIn, user, profile, company, loading: authLoading, supabaseConfigured } = useAuth();
+  const { showError, ToastComponent } = useToast(); // ✅ ADICIONADO
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -129,13 +131,16 @@ function LoginContent() {
     }
   }, [searchParams, isClient]);
 
-  // ✅ FORM SUBMISSION
+  // ✅ FORM SUBMISSION - SUBSTITUÍDA COM TOAST
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
+    
     if (!formData.email || !formData.password) {
-      setError('Por favor, preencha todos os campos.');
+      showError(
+        'Campos obrigatórios',
+        'Por favor, preencha email e senha para continuar.'
+      );
       return;
     }
 
@@ -150,12 +155,36 @@ function LoginContent() {
       console.error('❌ Erro no login:', err);
       
       const errorMessages = {
-        'Invalid login credentials': 'Email ou senha incorretos.',
-        'Email not confirmed': 'Confirme seu email antes de fazer login.',
-        'Too many requests': 'Muitas tentativas. Tente novamente em alguns minutos.'
+        'Invalid login credentials': {
+          title: 'Credenciais inválidas',
+          message: 'Email ou senha incorretos. Verifique suas credenciais e tente novamente.'
+        },
+        'Email not confirmed': {
+          title: 'Email não confirmado',
+          message: 'Confirme seu email antes de fazer login. Verifique sua caixa de entrada.'
+        },
+        'Too many requests': {
+          title: 'Muitas tentativas',
+          message: 'Muitas tentativas de login. Aguarde alguns minutos antes de tentar novamente.'
+        },
+        'User not found': {
+          title: 'Usuário não encontrado',
+          message: 'Não existe uma conta com este email. Verifique o email digitado.'
+        },
+        'Network error': {
+          title: 'Erro de conexão',
+          message: 'Problema de conexão com o servidor. Verifique sua internet e tente novamente.'
+        }
       };
       
-      setError(errorMessages[err.message] || err.message || 'Erro ao fazer login. Tente novamente.');
+      const errorKey = err.message;
+      const errorData = errorMessages[errorKey as keyof typeof errorMessages] || {
+        title: 'Erro no login',
+        message: err.message || 'Ocorreu um erro inesperado. Tente novamente.'
+      };
+      
+      showError(errorData.title, errorData.message);
+      
     } finally {
       setLoading(false);
     }
@@ -446,6 +475,9 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
           </div>
         </div>
       </div>
+
+      {/* ✅ TOAST PARA NOTIFICAÇÕES - ADICIONADO */}
+      <ToastComponent />
     </div>
   );
 }
