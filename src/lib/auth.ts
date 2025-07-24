@@ -7,6 +7,12 @@ export interface Company {
   displayName: string;
 }
 
+export interface Company {
+  id: string;
+  name: string;
+  displayName: string;
+}
+
 export function getCurrentCompany(): Company | null {
   if (typeof window === 'undefined') return null;
   
