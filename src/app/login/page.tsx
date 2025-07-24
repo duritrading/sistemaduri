@@ -441,7 +441,7 @@ CREATE POLICY "Permitir tudo user_profiles" ON public.user_profiles FOR ALL USIN
           {/* Corporate Footer */}
           <div className="mt-6 text-center">
             <p className="text-slate-500 text-xs">
-              Acesso seguro • Sistema corporativo • Duri Trading © 2025
+              Todos os direitos reservados a Duri Trading © 2025
             </p>
           </div>
         </div>

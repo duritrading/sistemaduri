@@ -110,69 +110,129 @@ export default function UsersAdminPage() {
     loadData();
   }, [user, profile, router]);
 
-  // ✅ CARREGAR DADOS
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setDebugInfo('🔄 Carregando dados...');
-      
-      const { supabase } = await import('@/lib/supabase');
-      
-      // Carregar empresas
-      setDebugInfo('📊 Buscando empresas...');
-      const { data: companiesData, error: companiesError } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('active', true)
-        .order('display_name');
+ const loadData = async () => {
+  // ✅ TIMEOUT CONTROLLER para evitar loading infinito
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
-      if (companiesError) {
-        setDebugInfo(`❌ Erro ao buscar empresas: ${companiesError.message}`);
-        throw companiesError;
-      }
-      
-      setCompanies(companiesData || []);
-      setDebugInfo(`✅ ${companiesData?.length || 0} empresas encontradas`);
-      
-      if (companiesData && companiesData.length > 0 && !form.companyId) {
-        setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
-      }
+  try {
+    setLoading(true);
+    setError(null);
+    setDebugInfo('🔄 Carregando dados...');
+    
+    const { supabase } = await import('@/lib/supabase');
+    
+    // ✅ CARREGAR EMPRESAS COM TIMEOUT
+    setDebugInfo('📊 Buscando empresas...');
+    const { data: companiesData, error: companiesError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('active', true)
+      .order('display_name')
+      .abortSignal(controller.signal);
 
-      // Carregar usuários
-      setDebugInfo('👥 Buscando usuários...');
-      const { data: usersData, error: usersError } = await supabase
-        .from('user_profiles')
-        .select(`
-          *,
-          companies (
-            id,
-            name,
-            display_name,
-            slug,
-            active
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (usersError) {
-        setDebugInfo(`❌ Erro ao buscar usuários: ${usersError.message}`);
-        throw usersError;
-      }
-      
-      setUsers(usersData || []);
-      setDebugInfo(`✅ ${usersData?.length || 0} usuários encontrados`);
-
-      // Verificar status de sincronização
-      await checkSyncStatus();
-      
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Erro ao carregar dados';
-      setError(errorMsg);
-      setDebugInfo(`❌ Erro final: ${errorMsg}`);
-    } finally {
-      setLoading(false);
+    if (companiesError) {
+      setDebugInfo(`❌ Erro ao buscar empresas: ${companiesError.message}`);
+      throw companiesError;
     }
-  };
+    
+    setCompanies(companiesData || []);
+    setDebugInfo(`✅ ${companiesData?.length || 0} empresas encontradas`);
+    
+    if (companiesData && companiesData.length > 0 && !form.companyId) {
+      setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
+    }
+
+    // ✅ CARREGAR USUÁRIOS COM TIMEOUT
+    setDebugInfo('👥 Buscando usuários...');
+    const { data: usersData, error: usersError } = await supabase
+      .from('user_profiles')
+      .select(`
+        *,
+        companies (
+          id,
+          name,
+          display_name,
+          slug,
+          active
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .abortSignal(controller.signal);
+
+    if (usersError) {
+      setDebugInfo(`❌ Erro ao buscar usuários: ${usersError.message}`);
+      throw usersError;
+    }
+    
+    setUsers(usersData || []);
+    setDebugInfo(`✅ ${usersData?.length || 0} usuários encontrados`);
+
+    // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO (COM TIMEOUT)
+    try {
+      setDebugInfo('🔄 Verificando sincronização...');
+      
+      const syncResponse = await fetch('/api/admin/companies', {
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (syncResponse.ok) {
+        const syncResult = await syncResponse.json();
+        setSyncStatus({
+          success: syncResult.success,
+          companiesInDatabase: companiesData?.length || 0,
+          companiesInAsana: syncResult.companies?.length?.toString() || '0',
+          needsSync: (syncResult.companies?.length || 0) > (companiesData?.length || 0),
+          asanaConfigured: !!syncResult.success,
+          companies: syncResult.companies || []
+        });
+        setDebugInfo('✅ Status de sincronização verificado');
+      } else {
+        setDebugInfo('⚠️ Erro ao verificar sincronização - continuando...');
+        setSyncStatus({
+          success: false,
+          companiesInDatabase: companiesData?.length || 0,
+          companiesInAsana: 'N/A',
+          needsSync: false,
+          asanaConfigured: false,
+          companies: []
+        });
+      }
+    } catch (syncError) {
+      setDebugInfo('⚠️ Sincronização falhou - continuando...');
+      setSyncStatus({
+        success: false,
+        companiesInDatabase: companiesData?.length || 0,
+        companiesInAsana: 'Erro',
+        needsSync: false,
+        asanaConfigured: false,
+        companies: []
+      });
+    }
+    
+    setDebugInfo('✅ Todos os dados carregados com sucesso');
+    
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+    
+    // ✅ DETECTAR TIMEOUT E MOSTRAR MENSAGEM ESPECÍFICA
+    if (err instanceof Error && err.name === 'AbortError') {
+      setError('⏰ Timeout: Carregamento demorou mais que 15 segundos. Tente novamente.');
+      setDebugInfo('❌ Timeout no carregamento dos dados');
+    } else {
+      setError(`Erro ao carregar dados: ${errorMsg}`);
+      setDebugInfo(`❌ Erro: ${errorMsg}`);
+    }
+    
+    console.error('❌ Erro completo no loadData:', err);
+  } finally {
+    // ✅ SEMPRE LIMPAR TIMEOUT E RESETAR LOADING
+    clearTimeout(timeoutId);
+    setLoading(false);
+    console.log('✅ loadData finalizado - loading definido como false');
+  }
+};
 
   // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO
   const checkSyncStatus = async () => {

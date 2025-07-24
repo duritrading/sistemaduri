@@ -1,4 +1,4 @@
-// src/providers/AuthProvider.tsx - ROBUSTO COM FALLBACKS DE ERRO
+// src/providers/AuthProvider.tsx - SEM EMPRESA PADRÃO + VERIFICAÇÃO RIGOROSA
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -42,58 +42,14 @@ const checkDatabaseSetup = async (): Promise<boolean> => {
   }
 };
 
-// ✅ CRIAR EMPRESA PADRÃO SE NÃO EXISTIR
-const ensureDefaultCompany = async (): Promise<Company | null> => {
+// ✅ BUSCAR PROFILE COM VERIFICAÇÃO RIGOROSA - SEM FALLBACKS
+const getValidUserProfile = async (user: User): Promise<{ profile: UserProfile | null; company: Company | null }> => {
   try {
     const { supabase } = await import('@/lib/supabase');
     
-    // Verificar se já existe
-    const { data: existing, error: fetchError } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('slug', 'empresa-padrao')
-      .single();
+    console.log('🔍 Buscando profile válido para:', user.email);
     
-    if (existing && !fetchError) {
-      console.log('✅ Empresa padrão já existe:', existing.name);
-      return existing as Company;
-    }
-    
-    // Criar se não existir
-    console.log('🔄 Criando empresa padrão...');
-    const { data: newCompany, error: createError } = await supabase
-      .from('companies')
-      .insert({
-        name: 'EMPRESA_PADRAO',
-        display_name: 'Empresa Padrão',
-        slug: 'empresa-padrao',
-        active: true
-      })
-      .select()
-      .single();
-    
-    if (createError) {
-      console.error('❌ Erro ao criar empresa padrão:', createError);
-      return null;
-    }
-    
-    console.log('✅ Empresa padrão criada:', newCompany?.name);
-    return newCompany as Company;
-    
-  } catch (error) {
-    console.error('❌ Erro geral na criação da empresa:', error);
-    return null;
-  }
-};
-
-// ✅ AUTO-CREATE PROFILE COM FALLBACKS ROBUSTOS
-const createProfileIfNotExists = async (user: User): Promise<{ profile: UserProfile | null; company: Company | null }> => {
-  try {
-    const { supabase } = await import('@/lib/supabase');
-    
-    console.log('🔍 Verificando profile para usuário:', user.email);
-    
-    // Tentar buscar profile existente
+    // ✅ BUSCAR PROFILE EXISTENTE COM VERIFICAÇÃO DE STATUS ATIVO
     const { data: existingProfile, error: fetchError } = await supabase
       .from('user_profiles')
       .select(`
@@ -107,102 +63,40 @@ const createProfileIfNotExists = async (user: User): Promise<{ profile: UserProf
         )
       `)
       .eq('id', user.id)
+      .eq('active', true)  // ✅ SÓ BUSCAR USUÁRIOS ATIVOS
       .single();
 
-    if (existingProfile && !fetchError) {
-      console.log('✅ Profile encontrado:', existingProfile.email);
-      return {
-        profile: existingProfile as UserProfile,
-        company: (existingProfile as any)?.companies as Company
-      };
-    }
-
-    console.log('⚠️ Profile não encontrado, tentando criar...');
-
-    // Garantir que existe empresa padrão
-    const defaultCompany = await ensureDefaultCompany();
-    
-    if (!defaultCompany) {
-      console.error('❌ Não foi possível garantir empresa padrão');
+    if (fetchError || !existingProfile) {
+      console.log('❌ Profile não encontrado ou usuário inativo:', user.email);
+      
+      if (fetchError?.code === 'PGRST116') {
+        console.log('🚨 Usuário não existe no sistema');
+      } else {
+        console.log('🚨 Usuário existe mas está inativo');
+      }
+      
+      // ✅ NÃO CRIAR FALLBACKS - REJEITAR COMPLETAMENTE
       return { profile: null, company: null };
     }
 
-    // Criar profile para o usuário
-    const { data: newProfile, error: createError } = await supabase
-      .from('user_profiles')
-      .insert({
-        id: user.id,
-        company_id: defaultCompany.id,
-        email: user.email,
-        full_name: user.user_metadata?.full_name || null,
-        role: 'viewer',
-        active: true
-      })
-      .select(`
-        *,
-        companies (
-          id,
-          name,
-          display_name,
-          slug,
-          active
-        )
-      `)
-      .single();
-
-    if (createError) {
-      console.error('❌ Erro ao criar profile:', createError);
-      
-      // FALLBACK: Retornar dados básicos mesmo com erro
-      return {
-        profile: {
-          id: user.id,
-          company_id: defaultCompany.id,
-          email: user.email,
-          full_name: user.user_metadata?.full_name || null,
-          role: 'viewer',
-          active: true,
-          last_login: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        } as UserProfile,
-        company: defaultCompany
-      };
+    // ✅ VERIFICAR SE A EMPRESA ESTÁ ATIVA
+    const userCompany = (existingProfile as any)?.companies as Company;
+    if (!userCompany || !userCompany.active) {
+      console.log('❌ Empresa do usuário não encontrada ou inativa:', user.email);
+      return { profile: null, company: null };
     }
 
-    console.log('✅ Profile criado com sucesso:', newProfile?.email);
+    console.log('✅ Profile válido encontrado:', existingProfile.email, '| Empresa:', userCompany.display_name);
     
     return {
-      profile: newProfile as UserProfile,
-      company: (newProfile as any)?.companies as Company
+      profile: existingProfile as UserProfile,
+      company: userCompany
     };
 
   } catch (error) {
-    console.error('❌ Erro geral na criação de profile:', error);
-    
-    // FALLBACK FINAL: Dados mockados para não bloquear o login
-    return {
-      profile: {
-        id: user.id,
-        company_id: 'empresa-padrao-id',
-        email: user.email,
-        full_name: user.user_metadata?.full_name || user.email.split('@')[0],
-        role: 'viewer',
-        active: true,
-        last_login: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as UserProfile,
-      company: {
-        id: 'empresa-padrao-id',
-        name: 'EMPRESA_PADRAO',
-        display_name: 'Empresa Padrão',
-        slug: 'empresa-padrao',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as Company
-    };
+    console.error('❌ Erro ao buscar profile válido:', error);
+    // ✅ EM CASO DE ERRO, NÃO CRIAR FALLBACKS
+    return { profile: null, company: null };
   }
 };
 
@@ -240,7 +134,99 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initClient();
   }, []);
 
-  // ✅ LOAD USER DATA COM FALLBACKS
+  // ✅ SIGN OUT CORRIGIDO
+  const signOut = async (): Promise<void> => {
+    console.log('🔄 Iniciando logout...');
+    setLoading(true);
+    
+    // Limpar estado local primeiro
+    setUser(null);
+    setProfile(null);
+    setCompany(null);
+    setSession(null);
+    setError(null);
+    
+    try {
+      if (isClient && supabaseConfigured) {
+        const { supabase } = await import('@/lib/supabase');
+        
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          console.log('✅ Fazendo logout do Supabase...');
+          const { error } = await supabase.auth.signOut();
+          
+          if (error && !error.message.includes('Auth session missing')) {
+            console.warn('⚠️ Erro no logout:', error.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Erro durante logout:', error);
+    }
+    
+    setLoading(false);
+    
+    try {
+      router.push('/login');
+    } catch (routerError) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+    
+    console.log('✅ Logout concluído');
+  };
+
+  // ✅ VERIFICAR STATUS ATIVO COM LOGOUT IMEDIATO
+  const checkUserActiveStatus = useCallback(async (currentUser: User) => {
+    if (!isClient || !supabaseConfigured || !currentUser) return;
+
+    try {
+      console.log('🔍 Verificando status ativo para:', currentUser.email);
+      
+      const response = await fetch('/api/auth/validate-active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id })
+      });
+
+      if (!response.ok) {
+        console.warn('⚠️ Erro na verificação de status:', response.status);
+        return;
+      }
+
+      const result = await response.json();
+      
+      if (!result.success && result.shouldLogout) {
+        console.log('🚨 USUÁRIO DEVE SER DESLOGADO:', result.reason);
+        
+        const messages = {
+          'USER_DELETED': 'Sua conta foi removida do sistema.',
+          'USER_INACTIVE': 'Sua conta foi desativada. Entre em contato com o administrador.'
+        };
+        
+        const message = messages[result.reason as keyof typeof messages] || 'Acesso revogado.';
+        
+        if (typeof window !== 'undefined') {
+          alert(`🚨 ${message}\n\nVocê será redirecionado para a tela de login.`);
+        }
+        
+        // ✅ LOGOUT IMEDIATO
+        await signOut();
+        return;
+      }
+
+      if (result.success) {
+        console.log('✅ Status ativo confirmado para:', currentUser.email);
+      }
+
+    } catch (error) {
+      console.warn('⚠️ Erro na verificação de status ativo:', error);
+    }
+  }, [isClient, supabaseConfigured, signOut]);
+
+  // ✅ LOAD USER DATA COM VERIFICAÇÃO RIGOROSA - SEM FALLBACKS
   const loadUserData = useCallback(async (currentUser: User) => {
     if (!isClient || !supabaseConfigured) return;
     
@@ -248,28 +234,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('🔄 Carregando dados do usuário:', currentUser.email);
       setError(null);
       
-      const { profile: userProfile, company: userCompany } = await createProfileIfNotExists(currentUser);
+      // ✅ BUSCAR APENAS USUÁRIOS VÁLIDOS E ATIVOS
+      const { profile: userProfile, company: userCompany } = await getValidUserProfile(currentUser);
       
-      if (!userProfile) {
-        console.warn('⚠️ Profile não pôde ser criado, mas login será permitido');
-        // Não bloquear o login mesmo sem profile
+      if (!userProfile || !userCompany) {
+        console.log('🚨 USUÁRIO INVÁLIDO - FORÇANDO LOGOUT');
+        
+        // ✅ MOSTRAR MENSAGEM E FORÇAR LOGOUT IMEDIATO
+        if (typeof window !== 'undefined') {
+          alert('🚨 Sua conta não tem acesso ao sistema ou foi desativada.\n\nVocê será redirecionado para a tela de login.');
+        }
+        
+        await signOut();
+        return;
       }
       
       setProfile(userProfile);
       setCompany(userCompany);
-      console.log('✅ Dados carregados:', { 
-        profile: userProfile?.email, 
-        company: userCompany?.name 
+      
+      console.log('✅ Dados carregados para usuário válido:', { 
+        profile: userProfile.email, 
+        company: userCompany.display_name 
       });
       
     } catch (error) {
       console.error('❌ Erro ao carregar dados do usuário:', error);
-      // Não definir error para não bloquear o login
-      console.warn('⚠️ Continuando com login básico devido a erro no profile');
+      
+      // ✅ EM CASO DE ERRO, FORÇAR LOGOUT
+      console.log('🚨 ERRO NO CARREGAMENTO - FORÇANDO LOGOUT');
+      await signOut();
     }
-  }, [isClient, supabaseConfigured]);
+  }, [isClient, supabaseConfigured, signOut]);
 
-  // ✅ INITIALIZE AUTH APENAS NO CLIENT
+  // ✅ INITIALIZE AUTH
   useEffect(() => {
     if (!isClient || !supabaseConfigured) {
       setLoading(false);
@@ -324,7 +321,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, [isClient, supabaseConfigured, loadUserData]);
 
-  // ✅ SIGN IN COM MELHOR ERROR HANDLING
+  // ✅ VERIFICAÇÃO PERIÓDICA A CADA 2 MINUTOS
+  useEffect(() => {
+    if (!user || !isClient || !supabaseConfigured) return;
+
+    // Verificar imediatamente
+    checkUserActiveStatus(user);
+
+    // Verificar a cada 2 minutos
+    const interval = setInterval(() => {
+      checkUserActiveStatus(user);
+    }, 120000);
+
+    return () => clearInterval(interval);
+  }, [user, checkUserActiveStatus]);
+
+  // ✅ VERIFICAR EM FOCUS EVENTS
+  useEffect(() => {
+    if (!user || !isClient) return;
+
+    const handleFocus = () => {
+      console.log('🔄 Foco retornado - verificando status do usuário');
+      checkUserActiveStatus(user);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [user, checkUserActiveStatus]);
+
+  // ✅ SIGN IN COM VERIFICAÇÃO IMEDIATA
   const signIn = async (email: string, password: string): Promise<void> => {
     if (!isClient || !supabaseConfigured) {
       throw new Error('Sistema não configurado.');
@@ -357,61 +382,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // ✅ SIGN UP DESABILITADO (será implementado depois)
+  // ✅ SIGN UP DESABILITADO
   const signUp = async (email: string, password: string, companySlug: string, fullName?: string): Promise<void> => {
     throw new Error('Criação de conta desabilitada. Entre em contato com o administrador.');
-  };
-
-  // ✅ SIGN OUT CORRIGIDO - Cole isso no lugar da função signOut atual
-  const signOut = async (): Promise<void> => {
-    console.log('🔄 Iniciando logout...');
-    setLoading(true);
-    
-    // ✅ 1. LIMPAR ESTADO LOCAL PRIMEIRO (resolve UI imediatamente)
-    setUser(null);
-    setProfile(null);
-    setCompany(null);
-    setSession(null);
-    setError(null);
-    
-    try {
-      // ✅ 2. VERIFICAR SE HÁ SESSÃO ATIVA ANTES DE TENTAR LOGOUT
-      if (isClient && supabaseConfigured) {
-        const { supabase } = await import('@/lib/supabase');
-        
-        // Verificar sessão atual
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session) {
-          console.log('✅ Sessão encontrada, fazendo logout...');
-          const { error } = await supabase.auth.signOut();
-          
-          // ✅ 3. NÃO BLOQUEAR se for erro de sessão missing
-          if (error && !error.message.includes('Auth session missing')) {
-            console.warn('⚠️ Erro no logout (mas continuando):', error.message);
-          }
-        } else {
-          console.log('ℹ️ Nenhuma sessão ativa - logout local suficiente');
-        }
-      }
-    } catch (error) {
-      // ✅ 4. CAPTURAR QUALQUER ERRO SEM BLOQUEAR LOGOUT
-      console.warn('⚠️ Erro durante logout (continuando):', error);
-    }
-    
-    // ✅ 5. SEMPRE REDIRECIONAR (independente de erros)
-    setLoading(false);
-    
-    try {
-      router.push('/login');
-    } catch (routerError) {
-      // Fallback se router falhar
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
-      }
-    }
-    
-    console.log('✅ Logout concluído');
   };
 
   // ✅ REFRESH PROFILE

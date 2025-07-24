@@ -13,13 +13,15 @@ interface EditUserData {
   active: boolean;
 }
 
+// SUBSTITUIR a função PUT em: src/app/api/admin/edit-user/route.ts
+// Cole esta versão que desativa sessões quando usuário é marcado como inativo
+
 export async function PUT(request: NextRequest) {
   try {
-    console.log('🔄 [API] Recebendo requisição para editar usuário...');
+    console.log('🔄 [EDIT] Recebendo requisição para editar usuário...');
 
-    // Parse do body
     const body: EditUserData = await request.json();
-    console.log('📝 [API] Dados recebidos:', { 
+    console.log('📝 [EDIT] Dados recebidos:', { 
       userId: body.userId, 
       email: body.email, 
       role: body.role, 
@@ -27,7 +29,7 @@ export async function PUT(request: NextRequest) {
       active: body.active
     });
 
-    // Validação básica
+    // ✅ VALIDAÇÕES (mantidas iguais)
     if (!body.userId || !body.email || !body.fullName || !body.companyId || !body.role) {
       return NextResponse.json({
         success: false,
@@ -35,7 +37,6 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validação de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(body.email)) {
       return NextResponse.json({
@@ -44,7 +45,6 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Validação de role
     const validRoles = ['admin', 'manager', 'operator', 'viewer'];
     if (!validRoles.includes(body.role)) {
       return NextResponse.json({
@@ -53,9 +53,9 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 });
     }
 
-    console.log('✅ [API] Dados validados, conectando ao Supabase...');
+    console.log('✅ [EDIT] Dados validados, conectando ao Supabase...');
 
-    // Verificar variáveis de ambiente
+    // Conectar ao Supabase Admin
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -63,16 +63,15 @@ export async function PUT(request: NextRequest) {
       throw new Error('Variáveis Supabase não configuradas');
     }
 
-    // Conectar ao Supabase
     const { createClient } = await import('@supabase/supabase-js');
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    console.log('✅ [API] Conexão Supabase estabelecida');
+    console.log('✅ [EDIT] Conexão Supabase estabelecida');
 
-    // Verificar se empresa existe
-    console.log('🔍 [API] Verificando empresa:', body.companyId);
+    // ✅ VERIFICAR SE EMPRESA EXISTE
+    console.log('🔍 [EDIT] Verificando empresa:', body.companyId);
     const { data: company, error: companyError } = await supabaseAdmin
       .from('companies')
       .select('id, name, display_name')
@@ -80,17 +79,17 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (companyError || !company) {
-      console.error('❌ [API] Empresa não encontrada:', companyError);
+      console.error('❌ [EDIT] Empresa não encontrada:', companyError);
       return NextResponse.json({
         success: false,
         error: `Empresa não encontrada: ${body.companyId}`
       }, { status: 400 });
     }
 
-    console.log('✅ [API] Empresa encontrada:', company.display_name);
+    console.log('✅ [EDIT] Empresa encontrada:', company.display_name);
 
-    // Verificar se usuário existe
-    console.log('🔍 [API] Verificando usuário:', body.userId);
+    // ✅ VERIFICAR SE USUÁRIO EXISTE E CAPTURAR STATUS ANTERIOR
+    console.log('🔍 [EDIT] Verificando usuário:', body.userId);
     const { data: existingUser, error: userError } = await supabaseAdmin
       .from('user_profiles')
       .select('*')
@@ -98,18 +97,20 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (userError || !existingUser) {
-      console.error('❌ [API] Usuário não encontrado:', userError);
+      console.error('❌ [EDIT] Usuário não encontrado:', userError);
       return NextResponse.json({
         success: false,
         error: 'Usuário não encontrado'
       }, { status: 404 });
     }
 
-    console.log('✅ [API] Usuário encontrado:', existingUser.email);
+    console.log('✅ [EDIT] Usuário encontrado:', existingUser.email);
+    const wasActiveBeforeEdit = existingUser.active;
+    const willBeActiveAfterEdit = body.active;
 
-    // Verificar se email já está em uso por outro usuário
+    // ✅ VERIFICAR EMAIL DUPLICADO
     if (body.email !== existingUser.email) {
-      console.log('🔍 [API] Verificando se novo email já existe...');
+      console.log('🔍 [EDIT] Verificando se novo email já existe...');
       const { data: emailUser, error: emailError } = await supabaseAdmin
         .from('user_profiles')
         .select('id')
@@ -125,8 +126,8 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Atualizar profile
-    console.log('🔄 [API] Atualizando profile do usuário...');
+    // ✅ ATUALIZAR PROFILE
+    console.log('🔄 [EDIT] Atualizando profile do usuário...');
     const { data: updatedProfile, error: updateError } = await supabaseAdmin
       .from('user_profiles')
       .update({
@@ -151,37 +152,56 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (updateError) {
-      console.error('❌ [API] Erro ao atualizar profile:', updateError);
+      console.error('❌ [EDIT] Erro ao atualizar profile:', updateError);
       return NextResponse.json({
         success: false,
         error: `Erro ao atualizar usuário: ${updateError.message}`
       }, { status: 500 });
     }
 
-    // Atualizar email no auth se mudou
+    // ✅ ATUALIZAR EMAIL NO AUTH SE MUDOU
     if (body.email !== existingUser.email) {
-      console.log('🔄 [API] Atualizando email no auth...');
+      console.log('🔄 [EDIT] Atualizando email no auth...');
       const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
         body.userId,
         { email: body.email }
       );
 
       if (authUpdateError) {
-        console.warn('⚠️ [API] Erro ao atualizar email no auth:', authUpdateError.message);
-        // Não falhar aqui, o profile já foi atualizado
+        console.warn('⚠️ [EDIT] Erro ao atualizar email no auth:', authUpdateError.message);
       }
     }
 
-    console.log('✅ [API] Usuário atualizado com sucesso:', body.email);
+    // 🚨 NOVA FUNCIONALIDADE: DESATIVAR SESSÕES SE USUÁRIO FOI INATIVADO
+    if (wasActiveBeforeEdit && !willBeActiveAfterEdit) {
+      console.log('🚨 [EDIT] Usuário foi desativado - invalidando todas as sessões...');
+      
+      try {
+        const { error: logoutError } = await supabaseAdmin.auth.admin.signOut(body.userId, 'others');
+        
+        if (logoutError) {
+          console.warn('⚠️ [EDIT] Erro ao invalidar sessões:', logoutError.message);
+        } else {
+          console.log('✅ [EDIT] Todas as sessões do usuário invalidadas');
+        }
+      } catch (logoutError) {
+        console.warn('⚠️ [EDIT] Erro na invalidação de sessões:', logoutError);
+      }
+    }
+
+    console.log('✅ [EDIT] Usuário atualizado com sucesso:', body.email);
 
     return NextResponse.json({
       success: true,
-      message: 'Usuário atualizado com sucesso',
-      user: updatedProfile
+      message: `Usuário ${body.email} atualizado com sucesso`,
+      user: updatedProfile,
+      actions: wasActiveBeforeEdit && !willBeActiveAfterEdit ? 
+        ['Profile atualizado', 'Sessões ativas invalidadas'] : 
+        ['Profile atualizado']
     });
 
   } catch (error) {
-    console.error('❌ [API] Erro geral na edição de usuário:', error);
+    console.error('❌ [EDIT] Erro geral na edição de usuário:', error);
     
     return NextResponse.json({
       success: false,

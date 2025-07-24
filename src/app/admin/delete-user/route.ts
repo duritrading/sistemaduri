@@ -1,4 +1,6 @@
-// src/app/api/admin/delete-user/route.ts - API PARA EXCLUIR USUÁRIOS
+// SUBSTITUIR COMPLETAMENTE: src/app/api/admin/delete-user/route.ts
+// Esta versão garante remoção completa do usuário do sistema
+
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -6,9 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export async function DELETE(request: NextRequest) {
   try {
-    console.log('🔄 [API] Recebendo requisição para excluir usuário...');
+    console.log('🔄 [DELETE] Recebendo requisição para excluir usuário...');
 
-    // Obter userId dos query parameters
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
@@ -19,7 +20,7 @@ export async function DELETE(request: NextRequest) {
       }, { status: 400 });
     }
 
-    console.log('📝 [API] Excluindo usuário:', userId);
+    console.log('📝 [DELETE] Excluindo usuário:', userId);
 
     // Verificar variáveis de ambiente
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -29,16 +30,16 @@ export async function DELETE(request: NextRequest) {
       throw new Error('Variáveis Supabase não configuradas');
     }
 
-    // Conectar ao Supabase
+    // Conectar ao Supabase Admin
     const { createClient } = await import('@supabase/supabase-js');
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    console.log('✅ [API] Conexão Supabase estabelecida');
+    console.log('✅ [DELETE] Conexão Supabase estabelecida');
 
-    // Verificar se usuário existe
-    console.log('🔍 [API] Verificando usuário:', userId);
+    // ✅ VERIFICAR SE USUÁRIO EXISTE
+    console.log('🔍 [DELETE] Verificando usuário:', userId);
     const { data: existingUser, error: userError } = await supabaseAdmin
       .from('user_profiles')
       .select('id, email, full_name, role')
@@ -46,18 +47,18 @@ export async function DELETE(request: NextRequest) {
       .single();
 
     if (userError || !existingUser) {
-      console.error('❌ [API] Usuário não encontrado:', userError);
+      console.error('❌ [DELETE] Usuário não encontrado:', userError);
       return NextResponse.json({
         success: false,
         error: 'Usuário não encontrado'
       }, { status: 404 });
     }
 
-    console.log('✅ [API] Usuário encontrado:', existingUser.email);
+    console.log('✅ [DELETE] Usuário encontrado:', existingUser.email);
 
-    // Verificar se não é o último admin (proteção)
+    // ✅ PROTEÇÃO: VERIFICAR SE NÃO É O ÚLTIMO ADMIN
     if (existingUser.role === 'admin') {
-      console.log('🔍 [API] Verificando se é o último admin...');
+      console.log('🔍 [DELETE] Verificando se é o último admin...');
       const { data: adminUsers, error: adminError } = await supabaseAdmin
         .from('user_profiles')
         .select('id')
@@ -65,7 +66,7 @@ export async function DELETE(request: NextRequest) {
         .eq('active', true);
 
       if (adminError) {
-        console.error('❌ [API] Erro ao verificar admins:', adminError);
+        console.error('❌ [DELETE] Erro ao verificar admins:', adminError);
         return NextResponse.json({
           success: false,
           error: 'Erro ao verificar permissões de admin'
@@ -80,44 +81,76 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Excluir profile (CASCADE irá excluir auth automaticamente)
-    console.log('🗑️ [API] Excluindo profile do usuário...');
+    // ✅ PASSO 1: INVALIDAR TODAS AS SESSÕES DO USUÁRIO
+    console.log('🔄 [DELETE] Invalidando sessões ativas...');
+    try {
+      const { error: logoutError } = await supabaseAdmin.auth.admin.signOut(userId, 'others');
+      if (logoutError) {
+        console.warn('⚠️ [DELETE] Erro ao invalidar sessões:', logoutError.message);
+      } else {
+        console.log('✅ [DELETE] Sessões invalidadas');
+      }
+    } catch (logoutError) {
+      console.warn('⚠️ [DELETE] Erro na invalidação de sessões:', logoutError);
+    }
+
+    // ✅ PASSO 2: EXCLUIR DO AUTH.USERS PRIMEIRO
+    console.log('🗑️ [DELETE] Excluindo usuário do auth...');
+    const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+
+    if (deleteAuthError) {
+      console.error('❌ [DELETE] Erro ao excluir do auth:', deleteAuthError.message);
+      
+      // Se falhar na exclusão do auth, não continuar
+      if (!deleteAuthError.message.includes('User not found')) {
+        return NextResponse.json({
+          success: false,
+          error: `Erro ao excluir usuário do auth: ${deleteAuthError.message}`
+        }, { status: 500 });
+      } else {
+        console.log('ℹ️ [DELETE] Usuário não encontrado no auth (já removido)');
+      }
+    } else {
+      console.log('✅ [DELETE] Usuário excluído do auth');
+    }
+
+    // ✅ PASSO 3: EXCLUIR DO USER_PROFILES
+    console.log('🗑️ [DELETE] Excluindo profile do usuário...');
     const { error: deleteProfileError } = await supabaseAdmin
       .from('user_profiles')
       .delete()
       .eq('id', userId);
 
     if (deleteProfileError) {
-      console.error('❌ [API] Erro ao excluir profile:', deleteProfileError);
+      console.error('❌ [DELETE] Erro ao excluir profile:', deleteProfileError);
       return NextResponse.json({
         success: false,
-        error: `Erro ao excluir usuário: ${deleteProfileError.message}`
+        error: `Erro ao excluir profile: ${deleteProfileError.message}`
       }, { status: 500 });
     }
 
-    // Excluir do auth também (para garantir)
-    console.log('🗑️ [API] Excluindo usuário do auth...');
-    const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    console.log('✅ [DELETE] Profile excluído');
 
-    if (deleteAuthError) {
-      console.warn('⚠️ [API] Erro ao excluir do auth:', deleteAuthError.message);
-      // Não falhar aqui, o profile já foi excluído
-    }
-
-    console.log('✅ [API] Usuário excluído com sucesso:', existingUser.email);
+    // ✅ SUCESSO COMPLETO
+    console.log('🎉 [DELETE] Usuário completamente removido:', existingUser.email);
 
     return NextResponse.json({
       success: true,
-      message: `Usuário ${existingUser.email} excluído com sucesso`,
+      message: `Usuário ${existingUser.email} foi completamente removido do sistema`,
       deletedUser: {
         id: existingUser.id,
         email: existingUser.email,
         full_name: existingUser.full_name
-      }
+      },
+      actions: [
+        'Sessões ativas invalidadas',
+        'Removido do sistema de autenticação',
+        'Profile de usuário excluído'
+      ]
     });
 
   } catch (error) {
-    console.error('❌ [API] Erro geral na exclusão de usuário:', error);
+    console.error('❌ [DELETE] Erro geral na exclusão:', error);
     
     return NextResponse.json({
       success: false,
@@ -126,7 +159,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// Também suportar POST para compatibilidade com alguns clientes
+// ✅ SUPORTE A POST PARA COMPATIBILIDADE
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -139,11 +172,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Redirecionar para DELETE com userId como query param
+    // Criar URL com userId como query param
     const deleteUrl = new URL(request.url);
     deleteUrl.searchParams.set('userId', userId);
     
-    // Criar nova request com DELETE method
+    // Criar nova request DELETE
     const deleteRequest = new NextRequest(deleteUrl, {
       method: 'DELETE',
       headers: request.headers
@@ -152,7 +185,7 @@ export async function POST(request: NextRequest) {
     return DELETE(deleteRequest);
 
   } catch (error) {
-    console.error('❌ [API] Erro no POST delete:', error);
+    console.error('❌ [DELETE] Erro no POST:', error);
     
     return NextResponse.json({
       success: false,
