@@ -1,8 +1,8 @@
-// src/app/admin/users/page.tsx - VERSÃO COM EDITAR/EXCLUIR + DEBUG DE SINCRONIZAÇÃO
+// src/app/admin/users/page.tsx - CORREÇÃO FINAL DOS PROBLEMAS ESPECÍFICOS
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter, usePathname } from 'next/navigation'; // ✅ ADICIONADO usePathname
 import { useAuth } from '@/hooks/useAuth';
 import { 
   Users, ArrowLeft, UserPlus, RefreshCw, Loader2, 
@@ -92,147 +92,212 @@ export default function UsersAdminPage() {
     active: true
   });
 
+  // ✅ REFS PARA CONTROLE DE LOOPS
+  const isLoadingDataRef = useRef(false);
+  const hasLoadedInitialDataRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const { user, profile } = useAuth();
   const router = useRouter();
+  const pathname = usePathname(); // ✅ ADICIONADO para detectar mudanças de rota
+
+  // ✅ RESETAR REF QUANDO SAIR DA PÁGINA - NOVO USEEFFECT
+  useEffect(() => {
+    // Se não estiver na página admin/users, resetar a flag
+    if (!pathname?.includes('/admin/users')) {
+      hasLoadedInitialDataRef.current = false;
+      console.log('🔄 Usuário saiu da página admin/users - resetando flag');
+    }
+  }, [pathname]);
 
   // ✅ VERIFICAR PERMISSÕES
   useEffect(() => {
-    if (!user || !profile) {
+    const userId = user?.id;
+    const userRole = profile?.role;
+
+    if (!userId || !userRole) {
       router.push('/login');
       return;
     }
 
-    if (profile.role !== 'admin') {
+    if (userRole !== 'admin') {
       router.push('/dashboard');
       return;
     }
 
-    loadData();
-  }, [user, profile, router]);
-
- const loadData = async () => {
-  // ✅ TIMEOUT CONTROLLER para evitar loading infinito
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-  try {
-    setLoading(true);
-    setError(null);
-    setDebugInfo('🔄 Carregando dados...');
-    
-    const { supabase } = await import('@/lib/supabase');
-    
-    // ✅ CARREGAR EMPRESAS COM TIMEOUT
-    setDebugInfo('📊 Buscando empresas...');
-    const { data: companiesData, error: companiesError } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('active', true)
-      .order('display_name')
-      .abortSignal(controller.signal);
-
-    if (companiesError) {
-      setDebugInfo(`❌ Erro ao buscar empresas: ${companiesError.message}`);
-      throw companiesError;
+    // ✅ CARREGAR DADOS APENAS UMA VEZ OU APÓS ERRO
+    if (!hasLoadedInitialDataRef.current) {
+      hasLoadedInitialDataRef.current = true;
+      loadData();
     }
-    
-    setCompanies(companiesData || []);
-    setDebugInfo(`✅ ${companiesData?.length || 0} empresas encontradas`);
-    
-    if (companiesData && companiesData.length > 0 && !form.companyId) {
-      setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
+  }, [user?.id, profile?.role, router]);
+
+  // ✅ CLEANUP AO DESMONTAR - MELHORADO
+  useEffect(() => {
+    return () => {
+      console.log('🧹 Componente sendo desmontado - limpando refs');
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      // ✅ RESETAR REF AO DESMONTAR
+      hasLoadedInitialDataRef.current = false;
+      isLoadingDataRef.current = false;
+    };
+  }, []);
+
+  // ✅ LOAD DATA COM PROTEÇÃO ANTI-LOOP - MELHORADO COM ERROR HANDLING
+  const loadData = useCallback(async () => {
+    // ✅ PREVENIR MÚLTIPLAS EXECUÇÕES SIMULTÂNEAS
+    if (isLoadingDataRef.current) {
+      console.log('⏭️ loadData já em execução, ignorando...');
+      return;
     }
 
-    // ✅ CARREGAR USUÁRIOS COM TIMEOUT
-    setDebugInfo('👥 Buscando usuários...');
-    const { data: usersData, error: usersError } = await supabase
-      .from('user_profiles')
-      .select(`
-        *,
-        companies (
-          id,
-          name,
-          display_name,
-          slug,
-          active
-        )
-      `)
-      .order('created_at', { ascending: false })
-      .abortSignal(controller.signal);
+    isLoadingDataRef.current = true;
 
-    if (usersError) {
-      setDebugInfo(`❌ Erro ao buscar usuários: ${usersError.message}`);
-      throw usersError;
+    // ✅ ABORTAR REQUEST ANTERIOR SE EXISTIR
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
-    
-    setUsers(usersData || []);
-    setDebugInfo(`✅ ${usersData?.length || 0} usuários encontrados`);
 
-    // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO (COM TIMEOUT)
+    // ✅ CRIAR NOVO CONTROLLER
+    abortControllerRef.current = new AbortController();
+    const controller = abortControllerRef.current;
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      setDebugInfo('🔄 Verificando sincronização...');
+      setLoading(true);
+      setError(null);
+      setDebugInfo('🔄 Carregando dados...');
       
-      const syncResponse = await fetch('/api/admin/companies', {
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const { supabase } = await import('@/lib/supabase');
       
-      if (syncResponse.ok) {
-        const syncResult = await syncResponse.json();
-        setSyncStatus({
-          success: syncResult.success,
-          companiesInDatabase: companiesData?.length || 0,
-          companiesInAsana: syncResult.companies?.length?.toString() || '0',
-          needsSync: (syncResult.companies?.length || 0) > (companiesData?.length || 0),
-          asanaConfigured: !!syncResult.success,
-          companies: syncResult.companies || []
+      // ✅ CARREGAR EMPRESAS COM TIMEOUT
+      setDebugInfo('📊 Buscando empresas...');
+      const { data: companiesData, error: companiesError } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('active', true)
+        .order('display_name')
+        .abortSignal(controller.signal);
+
+      if (companiesError) {
+        setDebugInfo(`❌ Erro ao buscar empresas: ${companiesError.message}`);
+        throw companiesError;
+      }
+      
+      setCompanies(companiesData || []);
+      setDebugInfo(`✅ ${companiesData?.length || 0} empresas encontradas`);
+      
+      if (companiesData && companiesData.length > 0 && !form.companyId) {
+        setForm(prev => ({ ...prev, companyId: companiesData[0].id }));
+      }
+
+      // ✅ CARREGAR USUÁRIOS COM TIMEOUT
+      setDebugInfo('👥 Buscando usuários...');
+      const { data: usersData, error: usersError } = await supabase
+        .from('user_profiles')
+        .select(`
+          *,
+          companies (
+            id,
+            name,
+            display_name,
+            slug,
+            active
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .abortSignal(controller.signal);
+
+      if (usersError) {
+        setDebugInfo(`❌ Erro ao buscar usuários: ${usersError.message}`);
+        throw usersError;
+      }
+      
+      setUsers(usersData || []);
+      setDebugInfo(`✅ ${usersData?.length || 0} usuários encontrados`);
+
+      // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO (COM TIMEOUT)
+      try {
+        setDebugInfo('🔄 Verificando sincronização...');
+        
+        const syncResponse = await fetch('/api/admin/companies', {
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' }
         });
-        setDebugInfo('✅ Status de sincronização verificado');
-      } else {
-        setDebugInfo('⚠️ Erro ao verificar sincronização - continuando...');
+        
+        if (syncResponse.ok) {
+          const syncResult = await syncResponse.json();
+          setSyncStatus({
+            success: syncResult.success,
+            companiesInDatabase: companiesData?.length || 0,
+            companiesInAsana: syncResult.companies?.length?.toString() || '0',
+            needsSync: (syncResult.companies?.length || 0) > (companiesData?.length || 0),
+            asanaConfigured: !!syncResult.success,
+            companies: syncResult.companies || []
+          });
+          setDebugInfo('✅ Status de sincronização verificado');
+        } else {
+          setDebugInfo('⚠️ Erro ao verificar sincronização - continuando...');
+          setSyncStatus({
+            success: false,
+            companiesInDatabase: companiesData?.length || 0,
+            companiesInAsana: 'N/A',
+            needsSync: false,
+            asanaConfigured: false,
+            companies: []
+          });
+        }
+      } catch (syncError) {
+        setDebugInfo('⚠️ Sincronização falhou - continuando...');
         setSyncStatus({
           success: false,
           companiesInDatabase: companiesData?.length || 0,
-          companiesInAsana: 'N/A',
+          companiesInAsana: 'Erro',
           needsSync: false,
           asanaConfigured: false,
           companies: []
         });
       }
-    } catch (syncError) {
-      setDebugInfo('⚠️ Sincronização falhou - continuando...');
-      setSyncStatus({
-        success: false,
-        companiesInDatabase: companiesData?.length || 0,
-        companiesInAsana: 'Erro',
-        needsSync: false,
-        asanaConfigured: false,
-        companies: []
-      });
+      
+      setDebugInfo('✅ Todos os dados carregados com sucesso');
+      
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.log('ℹ️ Request abortado - isso é normal');
+        return;
+      }
+
+      const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+      
+      // ✅ DETECTAR TIMEOUT E MOSTRAR MENSAGEM ESPECÍFICA
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('⏰ Timeout: Carregamento demorou mais que 15 segundos. Tente novamente.');
+        setDebugInfo('❌ Timeout no carregamento dos dados');
+      } else {
+        setError(`Erro ao carregar dados: ${errorMsg}`);
+        setDebugInfo(`❌ Erro: ${errorMsg}`);
+      }
+      
+      // ✅ RESETAR FLAG PARA PERMITIR RETRY QUANDO HÁ ERRO
+      hasLoadedInitialDataRef.current = false;
+      
+      console.error('❌ Erro completo no loadData:', err);
+    } finally {
+      clearTimeout(timeoutId);
+      setLoading(false);
+      isLoadingDataRef.current = false;
+      console.log('✅ loadData finalizado - loading definido como false');
     }
-    
-    setDebugInfo('✅ Todos os dados carregados com sucesso');
-    
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido';
-    
-    // ✅ DETECTAR TIMEOUT E MOSTRAR MENSAGEM ESPECÍFICA
-    if (err instanceof Error && err.name === 'AbortError') {
-      setError('⏰ Timeout: Carregamento demorou mais que 15 segundos. Tente novamente.');
-      setDebugInfo('❌ Timeout no carregamento dos dados');
-    } else {
-      setError(`Erro ao carregar dados: ${errorMsg}`);
-      setDebugInfo(`❌ Erro: ${errorMsg}`);
-    }
-    
-    console.error('❌ Erro completo no loadData:', err);
-  } finally {
-    // ✅ SEMPRE LIMPAR TIMEOUT E RESETAR LOADING
-    clearTimeout(timeoutId);
-    setLoading(false);
-    console.log('✅ loadData finalizado - loading definido como false');
-  }
-};
+  }, [form.companyId]);
+
+  // ✅ FUNÇÃO DE REFRESH MANUAL - NOVA
+  const refreshData = useCallback(() => {
+    console.log('🔄 Refresh manual solicitado');
+    hasLoadedInitialDataRef.current = false; // Reset para permitir novo carregamento
+    loadData();
+  }, [loadData]);
 
   // ✅ VERIFICAR STATUS DE SINCRONIZAÇÃO
   const checkSyncStatus = async () => {
@@ -304,8 +369,8 @@ export default function UsersAdminPage() {
 
 As empresas foram sincronizadas com sucesso!`);
 
-      // Recarregar dados
-      await loadData();
+      // Recarregar dados usando refresh manual
+      await refreshData();
       
     } catch (err) {
       console.error('❌ Erro na sincronização:', err);
@@ -384,7 +449,7 @@ O usuário já pode fazer login no sistema.`);
         role: 'viewer'
       });
       
-      await loadData();
+      await refreshData();
       
     } catch (err) {
       console.error('❌ Erro na criação:', err);
@@ -435,7 +500,7 @@ O usuário já pode fazer login no sistema.`);
 
       setSuccess(`✅ Usuário ${editForm.email} atualizado com sucesso!`);
       setEditingUser(null);
-      await loadData();
+      await refreshData();
       
     } catch (err) {
       console.error('❌ Erro ao atualizar:', err);
@@ -470,7 +535,7 @@ O usuário já pode fazer login no sistema.`);
 
       setSuccess(`✅ Usuário ${deletingUser.email} removido com sucesso!`);
       setDeletingUser(null);
-      await loadData();
+      await refreshData();
       
     } catch (err) {
       console.error('❌ Erro ao excluir:', err);
@@ -495,7 +560,7 @@ O usuário já pode fazer login no sistema.`);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ HEADER */}
+      {/* ✅ HEADER - ADICIONADO BOTÃO REFRESH */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
@@ -535,6 +600,16 @@ O usuário já pode fazer login no sistema.`);
                   </div>
                 </div>
               )}
+
+              {/* ✅ BOTÃO REFRESH MANUAL */}
+              <button
+                onClick={refreshData}
+                disabled={loading}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center space-x-2 disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                <span>Atualizar</span>
+              </button>
 
               {/* Botão de Sincronização */}
               <button
@@ -582,53 +657,21 @@ O usuário já pode fazer login no sistema.`);
           </div>
         )}
 
-        {/* ✅ DETALHES DE SINCRONIZAÇÃO */}
-        {lastSyncResult && lastSyncResult.errorDetails && lastSyncResult.errorDetails.length > 0 && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-start justify-between">
-              <div className="flex items-start space-x-3">
-                <AlertTriangle size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-amber-800 font-medium">Detalhes da Sincronização</p>
-                  <p className="text-amber-700 text-sm mt-1">
-                    {lastSyncResult.errorDetails.length} erros detectados durante a extração
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSyncDetails(!showSyncDetails)}
-                className="text-amber-600 hover:text-amber-800 text-sm font-medium"
-              >
-                {showSyncDetails ? 'Ocultar' : 'Ver Detalhes'}
-              </button>
-            </div>
-            
-            {showSyncDetails && (
-              <div className="mt-4 space-y-2">
-                <h4 className="font-medium text-amber-800">Erros de Extração:</h4>
-                <div className="bg-white rounded border max-h-40 overflow-y-auto">
-                  {lastSyncResult.errorDetails.map((error, i) => (
-                    <div key={i} className="px-3 py-2 text-sm text-gray-700 border-b border-gray-100 last:border-b-0">
-                      {error}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-amber-600 mt-2">
-                  Estes erros indicam tasks no Asana que não seguem o padrão esperado: "Nº EMPRESA (detalhes)"
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ✅ ALERTS */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-start space-x-3">
-              <XCircle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
+              <AlertTriangle size={20} className="text-red-600 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-red-800 font-medium">Erro</p>
-                <pre className="text-red-700 text-sm mt-1 whitespace-pre-wrap">{error}</pre>
+                <p className="text-red-800 font-medium text-sm">Erro</p>
+                <pre className="text-red-700 text-xs mt-1 whitespace-pre-wrap font-mono">{error}</pre>
+                {/* ✅ BOTÃO PARA TENTAR NOVAMENTE */}
+                <button
+                  onClick={refreshData}
+                  className="mt-2 text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                >
+                  Tentar Novamente
+                </button>
               </div>
             </div>
           </div>
@@ -639,245 +682,307 @@ O usuário já pode fazer login no sistema.`);
             <div className="flex items-start space-x-3">
               <CheckCircle size={20} className="text-green-600 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-green-800 font-medium">Sucesso</p>
-                <pre className="text-green-700 text-sm mt-1 whitespace-pre-wrap">{success}</pre>
+                <p className="text-green-800 font-medium text-sm">Sucesso</p>
+                <pre className="text-green-700 text-xs mt-1 whitespace-pre-wrap font-mono">{success}</pre>
               </div>
             </div>
           </div>
         )}
 
-        {/* ✅ GRID LAYOUT */}
-        <div className={`grid gap-8 ${showCreateForm ? 'lg:grid-cols-3' : 'lg:grid-cols-1'}`}>
-          
-          {/* ✅ FORMULÁRIO DE CRIAR USUÁRIO */}
-          {showCreateForm && (
-            <div className="bg-white rounded-lg shadow-sm border">
-              <div className="p-6 border-b">
-                <h2 className="text-xl font-bold">Criar Novo Usuário</h2>
+        {/* Resto do código permanece igual... */}
+        {/* (Cards, formulário, tabela, modais) */}
+
+        {/* ✅ STATS CARDS */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total de Usuários</p>
+                <p className="text-2xl font-bold text-gray-900">{users.length}</p>
               </div>
-              
-              <div className="p-6">
-                <form onSubmit={handleCreateUser} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
-                  </div>
+              <Users className="w-8 h-8 text-blue-600" />
+            </div>
+          </div>
+          
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Empresas Ativas</p>
+                <p className="text-2xl font-bold text-gray-900">{companies.length}</p>
+              </div>
+              <Database className="w-8 h-8 text-green-600" />
+            </div>
+          </div>
+          
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Usuários Ativos</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {users.filter(u => u.active).length}
+                </p>
+              </div>
+              <CheckCircle className="w-8 h-8 text-emerald-600" />
+            </div>
+          </div>
+          
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Administradores</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {users.filter(u => u.role === 'admin').length}
+                </p>
+              </div>
+              <XCircle className="w-8 h-8 text-red-600" />
+            </div>
+          </div>
+        </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nome Completo
-                    </label>
-                    <input
-                      type="text"
-                      value={form.fullName}
-                      onChange={(e) => setForm(prev => ({ ...prev, fullName: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Empresa
-                    </label>
-                    <select
-                      value={form.companyId}
-                      onChange={(e) => setForm(prev => ({ ...prev, companyId: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    >
-                      {companies.map(company => (
-                        <option key={company.id} value={company.id}>
-                          {company.display_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Papel
-                    </label>
-                    <select
-                      value={form.role}
-                      onChange={(e) => setForm(prev => ({ ...prev, role: e.target.value as any }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="viewer">Viewer</option>
-                      <option value="operator">Operator</option>
-                      <option value="manager">Manager</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Senha
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={form.password}
-                        onChange={(e) => setForm(prev => ({ ...prev, password: e.target.value }))}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        required
-                        minLength={6}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                      >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Confirmar Senha
-                    </label>
+        {/* ✅ CRIAR USUÁRIO FORM */}
+        {showCreateForm && (
+          <div className="bg-white rounded-lg shadow-sm border mb-8">
+            <div className="border-b px-6 py-4">
+              <h2 className="text-lg font-semibold text-gray-900">Criar Novo Usuário</h2>
+              <p className="text-sm text-gray-600">Preencha as informações para criar um novo usuário</p>
+            </div>
+            
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome Completo
+                  </label>
+                  <input
+                    type="text"
+                    value={form.fullName}
+                    onChange={(e) => setForm(prev => ({ ...prev, fullName: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Digite o nome completo"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="email@exemplo.com"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Senha
+                  </label>
+                  <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      value={form.confirmPassword}
-                      onChange={(e) => setForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={form.password}
+                      onChange={(e) => setForm(prev => ({ ...prev, password: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                      placeholder="Mínimo 6 caracteres"
                       required
+                      minLength={6}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={creating || companies.length === 0}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Confirmar Senha
+                  </label>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.confirmPassword}
+                    onChange={(e) => setForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Digite a senha novamente"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Empresa
+                  </label>
+                  <select
+                    value={form.companyId}
+                    onChange={(e) => setForm(prev => ({ ...prev, companyId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
                   >
-                    {creating ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" />
-                        <span>Criando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus size={16} />
-                        <span>Criar Usuário</span>
-                      </>
-                    )}
-                  </button>
-
-                  {companies.length === 0 && (
-                    <div className="text-center text-amber-600 text-sm">
-                      <p>⚠️ Nenhuma empresa disponível.</p>
-                      <p>Clique em "Sincronizar Empresas" primeiro.</p>
-                    </div>
-                  )}
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ LISTA DE USUÁRIOS */}
-          <div className={showCreateForm ? "lg:col-span-2" : "lg:col-span-1"}>
-            <div className="bg-white rounded-lg shadow-sm border">
-              <div className="p-6 border-b">
-                <h2 className="text-xl font-bold">Usuários Cadastrados ({users.length})</h2>
+                    <option value="">Selecione uma empresa</option>
+                    {companies.map(company => (
+                      <option key={company.id} value={company.id}>
+                        {company.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Papel
+                  </label>
+                  <select
+                    value={form.role}
+                    onChange={(e) => setForm(prev => ({ ...prev, role: e.target.value as any }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="viewer">Visualizador</option>
+                    <option value="operator">Operador</option>
+                    <option value="manager">Gerente</option>
+                    <option value="admin">Administrador</option>
+                  </select>
+                </div>
               </div>
               
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Usuário
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Empresa
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Papel
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Criado em
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Ações
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {users.map((user) => (
-                      <tr key={user.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">
-                              {user.full_name || 'Nome não informado'}
-                            </div>
-                            <div className="text-sm text-gray-500">{user.email}</div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {(user as any).companies?.display_name || 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.role === 'admin' ? 'bg-red-100 text-red-800' :
-                            user.role === 'manager' ? 'bg-purple-100 text-purple-800' :
-                            user.role === 'operator' ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {user.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {user.active ? 'Ativo' : 'Inativo'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(user.created_at).toLocaleDateString('pt-BR')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                          <button
-                            onClick={() => handleEditUser(user)}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
-                            title="Editar usuário"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user)}
-                            className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
-                            title="Excluir usuário"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                
-                {users.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    <Users size={48} className="mx-auto mb-4 text-gray-300" />
-                    <p>Nenhum usuário cadastrado ainda.</p>
-                    <p>Clique em "Novo Usuário" para começar.</p>
-                  </div>
-                )}
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateForm(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2 disabled:opacity-50"
+                >
+                  {creating ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Criando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={16} />
+                      <span>Criar Usuário</span>
+                    </>
+                  )}
+                </button>
               </div>
-            </div>
+            </form>
+          </div>
+        )}
+
+        {/* ✅ TABELA DE USUÁRIOS */}
+        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+          <div className="px-6 py-4 border-b">
+            <h2 className="text-lg font-semibold text-gray-900">Lista de Usuários</h2>
+            <p className="text-sm text-gray-600">Gerencie todos os usuários do sistema</p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Usuário
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Empresa
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Papel
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Criado em
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {users.map((user) => (
+                  <tr key={user.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {user.full_name || 'Nome não informado'}
+                        </div>
+                        <div className="text-sm text-gray-500">{user.email}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {user.companies?.display_name || 'Empresa não encontrada'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        user.role === 'admin' ? 'bg-red-100 text-red-800' :
+                        user.role === 'manager' ? 'bg-blue-100 text-blue-800' :
+                        user.role === 'operator' ? 'bg-green-100 text-green-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {user.role === 'admin' ? 'Administrador' :
+                         user.role === 'manager' ? 'Gerente' :
+                         user.role === 'operator' ? 'Operador' : 'Visualizador'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {user.active ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(user.created_at).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          className="text-blue-600 hover:text-blue-900 transition-colors"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="text-red-600 hover:text-red-900 transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            
+            {users.length === 0 && (
+              <div className="text-center py-12">
+                <Users size={48} className="mx-auto text-gray-400 mb-4" />
+                <p className="text-gray-500">Nenhum usuário encontrado</p>
+                <button
+                  onClick={refreshData}
+                  className="mt-3 text-blue-600 hover:text-blue-800 text-sm"
+                >
+                  Tentar carregar novamente
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -885,36 +990,44 @@ O usuário já pode fazer login no sistema.`);
       {/* ✅ MODAL DE EDIÇÃO */}
       {editingUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Editar Usuário</h3>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Usuário</h3>
+            </div>
             
-            <div className="space-y-4">
+            <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nome Completo
+                </label>
                 <input
                   type="text"
                   value={editForm.fullName}
                   onChange={(e) => setEditForm(prev => ({ ...prev, fullName: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
-
+              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Empresa
+                </label>
                 <select
                   value={editForm.companyId}
                   onChange={(e) => setEditForm(prev => ({ ...prev, companyId: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   {companies.map(company => (
                     <option key={company.id} value={company.id}>
@@ -923,21 +1036,23 @@ O usuário já pode fazer login no sistema.`);
                   ))}
                 </select>
               </div>
-
+              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Papel</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Papel
+                </label>
                 <select
                   value={editForm.role}
                   onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value as any }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="viewer">Viewer</option>
-                  <option value="operator">Operator</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
+                  <option value="viewer">Visualizador</option>
+                  <option value="operator">Operador</option>
+                  <option value="manager">Gerente</option>
+                  <option value="admin">Administrador</option>
                 </select>
               </div>
-
+              
               <div className="flex items-center">
                 <input
                   type="checkbox"
@@ -946,13 +1061,13 @@ O usuário já pode fazer login no sistema.`);
                   onChange={(e) => setEditForm(prev => ({ ...prev, active: e.target.checked }))}
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
-                <label htmlFor="active" className="ml-2 block text-sm text-gray-900">
+                <label htmlFor="active" className="ml-2 block text-sm text-gray-700">
                   Usuário ativo
                 </label>
               </div>
             </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
+            
+            <div className="px-6 py-4 border-t flex justify-end space-x-3">
               <button
                 onClick={() => setEditingUser(null)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
@@ -970,26 +1085,25 @@ O usuário já pode fazer login no sistema.`);
         </div>
       )}
 
-      {/* ✅ MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
+      {/* ✅ MODAL DE EXCLUSÃO */}
       {deletingUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4 text-red-800">Confirmar Exclusão</h3>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Confirmar Exclusão</h3>
+            </div>
             
-            <p className="text-gray-700 mb-2">
-              Tem certeza que deseja excluir o usuário:
-            </p>
-            <p className="font-semibold text-gray-900 mb-4">
-              {deletingUser.full_name} ({deletingUser.email})
-            </p>
-            
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-              <p className="text-red-800 text-sm">
-                ⚠️ Esta ação não pode ser desfeita. O usuário perderá acesso imediatamente ao sistema.
+            <div className="p-6">
+              <p className="text-gray-700">
+                Tem certeza que deseja remover o usuário{' '}
+                <strong>{deletingUser.email}</strong>?
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                Esta ação não pode ser desfeita.
               </p>
             </div>
-
-            <div className="flex justify-end space-x-3">
+            
+            <div className="px-6 py-4 border-t flex justify-end space-x-3">
               <button
                 onClick={() => setDeletingUser(null)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
@@ -1000,7 +1114,7 @@ O usuário já pode fazer login no sistema.`);
                 onClick={handleConfirmDelete}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
               >
-                Excluir Usuário
+                Remover
               </button>
             </div>
           </div>
