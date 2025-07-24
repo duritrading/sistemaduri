@@ -274,7 +274,7 @@ export default function DashboardPage() {
               />
               
               {/* ✅ BOTÃO DE NOTIFICAÇÕES - ADICIONADO AO LADO ESQUERDO DO STATUS */}
-              <NotificationsButton userId={user?.id || user?.email || 'default-user'} />
+              <NotificationsButton />
               
               {/* ✅ Status de Conexão */}
               <div className="hidden sm:flex items-center space-x-2">
