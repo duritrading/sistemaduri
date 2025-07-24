@@ -37,7 +37,7 @@ function extractCompanyName(title: string): string | null {
   // ✅ Aceitos: "122º WCB", "28º AGRIVALE", "17º AMZ (IMPORTAÇÃO)", "13º.1 NATURALLY"
   // ❌ Rejeitados: "DURI TRADING", "EXPOFRUT (IMPORTAÇÃO)", qualquer coisa sem número
   
-  const strictPattern = /^\d+º(?:\.\d+)?\s+([A-Z][A-Za-z\s&.'-]+?)(?:\s*\(.*)?$/i;
+  const strictPattern = /^\d+(?:\.\d+)?º\s+([A-Z][A-Za-z\s&.'-]+?)(?:\s*\(.*)?$/i;
   const match = cleanTitle.match(strictPattern);
   
   if (match && match[1]) {
