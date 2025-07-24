@@ -288,29 +288,6 @@ export default function DashboardPage() {
                 </span>
               </div>
 
-              {/* ✅ BOTÕES ADMIN E SETTINGS ANTES DO USER INFO */}
-              {isAdmin && (
-                <button
-                  onClick={() => router.push('/admin/users')}
-                  className="flex items-center space-x-2 px-4 py-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-xl transition-all duration-200 border border-purple-200/50"
-                  title="Administrar usuários do sistema"
-                >
-                  <Users size={18} />
-                  <span className="text-sm font-medium hidden lg:inline">Admin</span>
-                </button>
-              )}
-
-              {isManager && (
-                <button
-                  onClick={() => {/* Implementar depois */}}
-                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200"
-                  title="Configurações da empresa"
-                >
-                  <Settings size={18} />
-                  <span className="text-sm font-medium hidden lg:inline">Config</span>
-                </button>
-              )}
-
               {/* ✅ USER INFO REORGANIZADO - EMAIL PRINCIPAL E CARGO EMBAIXO */}
               <div className="flex items-center space-x-3">
                 <div className="text-right">
