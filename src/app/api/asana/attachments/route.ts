@@ -1,4 +1,4 @@
-// src/app/api/asana/attachments/route.ts - API PARA ANEXOS EM TEMPO REAL
+// src/app/api/asana/attachments/route.ts - API CORRIGIDA COMPLETAMENTE
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -16,6 +16,10 @@ interface AsanaAttachment {
     gid: string;
     name: string;
   };
+  fileExtension: string;
+  fileType: string;
+  formattedSize: string;
+  iconName: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -45,7 +49,7 @@ export async function GET(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // ✅ Buscar anexos da task com campos essenciais
+    // Buscar anexos da task com campos essenciais
     const optFields = [
       'name',
       'download_url', 
@@ -81,10 +85,8 @@ export async function GET(request: NextRequest) {
     
     console.log(`📊 [Attachments API] Total anexos encontrados: ${attachments.length}`);
 
-    // ✅ Processar dados dos anexos
+    // Processar dados dos anexos
     const processedAttachments: AsanaAttachment[] = attachments.map((attachment: any) => {
-      
-      // Determinar tipo de arquivo e ícone
       const fileExtension = getFileExtension(attachment.name);
       const fileType = getFileType(attachment.content_type, fileExtension);
       
@@ -99,15 +101,14 @@ export async function GET(request: NextRequest) {
           gid: attachment.parent?.gid || taskId,
           name: attachment.parent?.name || 'Task'
         },
-        // Campos enriquecidos
-        fileExtension,
-        fileType,
+        fileExtension: fileExtension,
+        fileType: fileType,
         formattedSize: formatFileSize(attachment.size || 0),
         iconName: getFileIcon(fileType)
       };
     });
 
-    // ✅ Ordenar por data de criação (mais recentes primeiro)
+    // Ordenar por data de criação (mais recentes primeiro)
     processedAttachments.sort((a, b) => 
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
       summary: {
         totalFiles: processedAttachments.length,
         totalSize: processedAttachments.reduce((sum, att) => sum + att.size, 0),
-        fileTypes: [...new Set(processedAttachments.map(att => att.fileType))]
+        fileTypes: Array.from(new Set(processedAttachments.map(att => att.fileType)))
       }
     }, {
       headers: {
@@ -160,7 +161,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ✅ HELPER FUNCTIONS
+// HELPER FUNCTIONS
 
 function getFileExtension(filename: string): string {
   const parts = filename.split('.');
