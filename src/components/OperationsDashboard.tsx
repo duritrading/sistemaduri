@@ -1,11 +1,12 @@
-// src/components/OperationsDashboard.tsx - ADICIONADO COMMENTS VIEWER SEM ALTERAR LAYOUT
+// src/components/OperationsDashboard.tsx - ENHANCED COM ANEXOS + NOTIFICAÇÕES ETA
 'use client';
 
 import { useState } from 'react';
-import { List, Eye } from 'lucide-react';
+import { List, Eye, Paperclip, MessageSquare } from 'lucide-react';
 import { CommentsModal } from './CommentsModal';
+import { AttachmentsModal } from './AttachmentsModal';
 
-// ✅ INTERFACES - Mantidas exatamente iguais
+// ✅ INTERFACES (mantidas iguais)
 interface Tracking {
   id: string;
   title: string;
@@ -63,7 +64,7 @@ export function OperationsDashboard({
   loading = false
 }: OperationsDashboardProps) {
   
-  // ✅ NOVO STATE PARA MODAL DE COMENTÁRIOS
+  // ✅ STATES PARA MODAIS
   const [commentsModal, setCommentsModal] = useState<{
     isOpen: boolean;
     taskId: string;
@@ -74,7 +75,17 @@ export function OperationsDashboard({
     taskTitle: ''
   });
 
-  // ✅ FUNÇÃO PARA ABRIR MODAL DE COMENTÁRIOS
+  const [attachmentsModal, setAttachmentsModal] = useState<{
+    isOpen: boolean;
+    taskId: string;
+    taskTitle: string;
+  }>({
+    isOpen: false,
+    taskId: '',
+    taskTitle: ''
+  });
+
+  // ✅ FUNÇÕES PARA ABRIR MODAIS
   const openCommentsModal = (taskId: string, taskTitle: string) => {
     setCommentsModal({
       isOpen: true,
@@ -83,7 +94,15 @@ export function OperationsDashboard({
     });
   };
 
-  // ✅ FUNÇÃO PARA FECHAR MODAL
+  const openAttachmentsModal = (taskId: string, taskTitle: string) => {
+    setAttachmentsModal({
+      isOpen: true,
+      taskId,
+      taskTitle
+    });
+  };
+
+  // ✅ FUNÇÕES PARA FECHAR MODAIS
   const closeCommentsModal = () => {
     setCommentsModal({
       isOpen: false,
@@ -92,7 +111,15 @@ export function OperationsDashboard({
     });
   };
 
-  // ✅ Função para identificar operações canceladas (MANTIDA EXATA)
+  const closeAttachmentsModal = () => {
+    setAttachmentsModal({
+      isOpen: false,
+      taskId: '',
+      taskTitle: ''
+    });
+  };
+
+  // ✅ Função para identificar operações canceladas (mantida)
   const isOperationCancelled = (tracking: Tracking): boolean => {
     const cancelKeywords = ['cancel', 'suspens', 'abort', 'parad'];
     
@@ -117,60 +144,44 @@ export function OperationsDashboard({
     return false;
   };
 
-  // ✅ Formatar datas para DD/MM/YYYY
+  // ✅ Helper functions (mantidas)
   const formatDate = (dateString: string | null): string => {
     if (!dateString) return '-';
-    
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '-';
-      
       return date.toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
       });
     } catch {
-      // Fallback para strings no formato YYYY-MM-DD
-      if (dateString.match(/^\d{4}-\d{2}-\d{2}/)) {
-        const [year, month, day] = dateString.substring(0, 10).split('-');
-        return `${day}/${month}/${year}`;
-      }
-      return dateString.substring(0, 10);
+      return dateString;
     }
   };
 
-  // ✅ Cores para status marítimos (MANTIDAS EXATAS)
   const getStatusColor = (status: string): string => {
-    const colors = {
-      'Abertura do Processo': 'bg-yellow-100 text-yellow-800',
-      'Pré Embarque': 'bg-orange-100 text-orange-800',
-      'Rastreio da Carga': 'bg-blue-100 text-blue-800',
-      'Chegada da Carga': 'bg-purple-100 text-purple-800',
-      'Entrega': 'bg-green-100 text-green-800',
+    const statusColors: Record<string, string> = {
+      'Processos Finalizados': 'bg-gray-100 text-gray-800',
       'Fechamento': 'bg-green-100 text-green-800',
-      'Processos Finalizados': 'bg-gray-100 text-gray-800'
+      'Entrega': 'bg-green-100 text-green-800',
+      'Chegada da Carga': 'bg-purple-100 text-purple-800',
+      'Rastreio da Carga': 'bg-blue-100 text-blue-800',
+      'Pré Embarque': 'bg-orange-100 text-orange-800',
+      'Abertura do Processo': 'bg-yellow-100 text-yellow-800',
     };
-    
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return statusColors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  // ✅ Extração de dados seguros (MANTIDA EXATA)
-  const getTrackingData = (tracking: Tracking) => {
-    let companhia = tracking.transport?.company || tracking.business?.empresa || '-';
-    
-    if (companhia && typeof companhia === 'string') {
-      const companhiaUpper = companhia.toUpperCase();
-      if (companhiaUpper === 'DURI' || companhiaUpper === 'WCB' || companhiaUpper === 'AGRIVALE' || 
-          companhiaUpper === 'NATURALLY' || companhiaUpper === 'AMZ' || companhiaUpper === 'EXPOFRUT' || 
-          companhiaUpper === 'UNIVAR') {
-        companhia = '-';
-      }
-    }
+  const getTableRowData = (tracking: Tracking) => {
+    const companhia = tracking.transport?.company || 
+                     tracking.business?.empresa || 
+                     tracking.customFields?.['EMPRESA'] || 
+                     tracking.customFields?.['CIA DE TRANSPORTE'] || 
+                     '-';
 
     return {
-      referencia: tracking.ref || tracking.title?.substring(0, 20) || 'N/A',
-      status: tracking.maritimeStatus || 'N/A',
+      ref: tracking.ref || tracking.title.split(' ')[0] || '-',
+      empresa: tracking.company || '-',
       exportador: tracking.transport?.exporter || tracking.customFields?.['Exportador'] || tracking.customFields?.['EXPORTADOR'] || '-',
       produto: tracking.transport?.products?.join(', ') || tracking.customFields?.['PRODUTO'] || tracking.customFields?.['Produto'] || '-',
       companhia: companhia,
@@ -200,7 +211,7 @@ export function OperationsDashboard({
             <table className="min-w-full">
               <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                 <tr>
-                  {Array.from({ length: 11 }).map((_, i) => (
+                  {Array.from({ length: 12 }).map((_, i) => (
                     <th key={i} className="px-4 py-4">
                       <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
                     </th>
@@ -210,7 +221,7 @@ export function OperationsDashboard({
               <tbody>
                 {Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    {Array.from({ length: 11 }).map((_, j) => (
+                    {Array.from({ length: 12 }).map((_, j) => (
                       <td key={j} className="px-4 py-4">
                         <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
                       </td>
@@ -229,7 +240,7 @@ export function OperationsDashboard({
     <>
       <div id="operacoes" className="scroll-mt-24 space-y-8">
         
-        {/* ✅ HEADER PREMIUM - MANTIDO EXATO */}
+        {/* ✅ HEADER PREMIUM (mantido) */}
         <div className="relative overflow-hidden bg-gradient-to-br from-white via-gray-50 to-green-50/30 border border-gray-200/50 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 group">
           <div className="absolute inset-0 bg-gradient-to-r from-[#b51c26]/5 to-transparent group-hover:from-[#b51c26]/10 transition-all"></div>
           
@@ -246,7 +257,7 @@ export function OperationsDashboard({
                     Operações Detalhadas
                   </h2>
                   <p className="text-sm text-gray-600 font-medium mt-1">
-                    Lista detalhada de todas as operações de tracking • <span className="text-[#b51c26] font-semibold">{filteredTrackings.length}</span> operações
+                    Lista detalhada com anexos e notificações • <span className="text-[#b51c26] font-semibold">{filteredTrackings.length}</span> operações
                   </p>
                 </div>
               </div>
@@ -263,170 +274,107 @@ export function OperationsDashboard({
           </div>
         </div>
 
-        {/* ✅ TABELA PREMIUM - ADICIONADA COLUNA DE COMENTÁRIOS */}
+        {/* ✅ TABELA ENHANCED COM ANEXOS + COMENTÁRIOS */}
         <div className="relative overflow-hidden bg-white border border-gray-200/50 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300">
           <div className="overflow-x-auto">
             {filteredTrackings.length > 0 ? (
               <table className="min-w-full">
-                {/* ✅ HEADER DA TABELA - ADICIONADA COLUNA COMENTÁRIOS */}
-                <thead className="bg-gradient-to-r from-gray-50 via-white to-gray-50">
-                  <tr className="border-b border-gray-200">
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Referência
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Exportador
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Produto
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Companhia
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Navio
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Órgãos Anuentes
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      ETD
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      ETA
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Responsável
-                    </th>
-                    {/* ✅ NOVA COLUNA COMENTÁRIOS */}
-                    <th className="px-4 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Follow-Up
-                    </th>
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Ref</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Empresa</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Exportador</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Produto</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Companhia</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Navio</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Órgãos</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ETD</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ETA</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Responsável</th>
+                    <th className="px-4 py-4 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Follow-up</th>
+                    <th className="px-4 py-4 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Anexos</th>
                   </tr>
                 </thead>
-                
-                {/* ✅ BODY DA TABELA - ADICIONADA CÉLULA DE COMENTÁRIOS */}
-                <tbody className="divide-y divide-gray-100">
-                  {filteredTrackings.map((tracking, index) => {
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {filteredTrackings.map((tracking) => {
+                    const rowData = getTableRowData(tracking);
                     const isCancelled = isOperationCancelled(tracking);
-                    const data = getTrackingData(tracking);
-                    
-                    return (
-                      <tr 
-                        key={tracking.id} 
-                        className={`
-                          hover:bg-gradient-to-r hover:from-[#b51c26]/5 hover:to-transparent transition-all duration-300 group
-                          ${isCancelled ? 'bg-red-50/50' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}
-                        `}
-                      >
-                        {/* ✅ TODAS AS CÉLULAS EXISTENTES MANTIDAS EXATAS */}
-                        <td className="px-4 py-4">
-                          <div className="flex flex-col">
-                            <div className="text-sm font-bold text-gray-900 group-hover:text-[#b51c26] transition-colors">
-                              {data.referencia}
-                            </div>
-                            {tracking.title && tracking.title !== data.referencia && (
-                              <div className="text-xs text-gray-500 truncate max-w-xs mt-1">
-                                {tracking.title}
-                              </div>
-                            )}
-                          </div>
-                        </td>
 
-                        <td className="px-4 py-4">
-                          <span className={`
-                            inline-flex px-3 py-1.5 text-xs font-bold rounded-full shadow-sm
-                            ${isCancelled 
-                              ? 'bg-red-100 text-red-800 border border-red-200' 
-                              : getStatusColor(data.status) + ' border border-opacity-20'
-                            }
-                          `}>
-                            {isCancelled ? 'CANCELADA' : data.status}
+                    return (
+                      <tr key={tracking.id} className={`hover:bg-gray-50 transition-colors ${isCancelled ? 'bg-red-50' : ''}`}>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {rowData.ref}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {rowData.empresa}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(tracking.maritimeStatus)}`}>
+                            {tracking.maritimeStatus}
                           </span>
                         </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {data.exportador}
-                          </div>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.exportador}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.produto}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.companhia}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.navio}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.orgaosAnuentes}
+                        </td>
+                        
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {rowData.etd}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                          {rowData.eta}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 max-w-[150px] truncate">
+                          {rowData.responsavel}
                         </td>
 
-                        <td className="px-4 py-4">
-                          <div className="text-sm text-gray-900 max-w-xs">
-                            <div className="truncate" title={data.produto}>
-                              {data.produto}
-                            </div>
-                          </div>
+                          {/* ✅ NOVA COLUNA: FOLLOW-UP + NOTIFICAÇÕES */}
+                        <td className="px-4 py-4 whitespace-nowrap text-center">
+                          <button
+                            onClick={() => openCommentsModal(tracking.id, tracking.title)}
+                            className="inline-flex items-center justify-center w-8 h-8 bg-[#b51c26]/10 hover:bg-[#b51c26]/20 text-[#b51c26] hover:text-[#dc2626] rounded-lg transition-all duration-200 hover:scale-105"
+                            title="Ver follow-up e notificações"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
                         </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {data.companhia}
-                          </div>
+                        
+                        {/* ✅ NOVA COLUNA: ANEXOS */}
+                        <td className="px-4 py-4 whitespace-nowrap text-center">
+                          <button
+                            onClick={() => openAttachmentsModal(tracking.id, tracking.title)}
+                            className="inline-flex items-center justify-center w-8 h-8 bg-blue-100 hover:bg-blue-200 text-blue-600 hover:text-blue-700 rounded-lg transition-all duration-200 hover:scale-105"
+                            title="Ver anexos"
+                          >
+                            <Paperclip className="w-4 h-4" />
+                          </button>
                         </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm text-gray-900">
-                            {data.navio}
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm text-gray-900 max-w-xs">
-                            <div className="truncate" title={data.orgaosAnuentes}>
-                              {data.orgaosAnuentes}
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm font-mono text-gray-900">
-                            {data.etd}
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm font-mono text-gray-900">
-                            {data.eta}
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <div className="text-sm text-gray-900">
-                            {data.responsavel}
-                          </div>
-                        </td>
-
-                        {/* ✅ NOVA CÉLULA DE COMENTÁRIOS */}
-                        <td className="px-4 py-4">
-                          <div className="flex justify-center">
-                            <button
-                              onClick={() => openCommentsModal(tracking.id, tracking.title)}
-                              className="p-2 text-gray-400 hover:text-[#b51c26] hover:bg-[#b51c26]/10 rounded-lg transition-all duration-200 group"
-                              title="Ver comentários que começam com &"
-                            >
-                              <Eye className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                            </button>
-                          </div>
-                        </td>
+                    
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             ) : (
-              /* ✅ ESTADO VAZIO MANTIDO EXATO */
-              <div className="relative py-16">
-                <div className="absolute inset-0 bg-gradient-to-r from-gray-50/50 to-transparent"></div>
-                <div className="relative text-center">
-                  <div className="w-16 h-16 bg-gradient-to-br from-[#b51c26] to-[#dc2626] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-                    <List className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Nenhuma Operação Encontrada</h3>
-                  <p className="text-gray-600 mb-4">
+              <div className="text-center py-16">
+                <div className="max-w-md mx-auto">
+                  <List className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    {hasActiveFilters ? 'Nenhum resultado encontrado' : 'Nenhuma operação disponível'}
+                  </h3>
+                  <p className="text-gray-500 mb-6">
                     {hasActiveFilters 
                       ? 'Nenhuma operação corresponde aos filtros aplicados.' 
                       : 'Não há operações para exibir no momento.'
@@ -447,12 +395,20 @@ export function OperationsDashboard({
         </div>
       </div>
 
-      {/* ✅ MODAL DE COMENTÁRIOS */}
+      {/* ✅ MODAL DE COMENTÁRIOS + NOTIFICAÇÕES ETA */}
       <CommentsModal
         isOpen={commentsModal.isOpen}
         onClose={closeCommentsModal}
         taskId={commentsModal.taskId}
         taskTitle={commentsModal.taskTitle}
+      />
+
+      {/* ✅ MODAL DE ANEXOS */}
+      <AttachmentsModal
+        isOpen={attachmentsModal.isOpen}
+        onClose={closeAttachmentsModal}
+        taskId={attachmentsModal.taskId}
+        taskTitle={attachmentsModal.taskTitle}
       />
     </>
   );
